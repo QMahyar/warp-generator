@@ -9,10 +9,10 @@ Authentication uses a `PASSWORD` secret and an HMAC-signed session cookie
 
 **Blocked by:** None — can start immediately.
 
-**Status:** ready-for-agent
+**Status:** done — committed (`a185ea6`), worker wg-ticket-01
 
-- [ ] Login page served without auth; wrong password rejected; correct password issues a working cookie
-- [ ] Gated routes/assets reject unauthenticated requests; expiry and logout work
-- [ ] Legacy `/api/generate` behaviour unchanged and still public
-- [ ] Cookie sign/verify covered by unit tests (`node:test`)
-- [ ] `wrangler dev` smoke: login → empty panel shell renders
+- [x] Login page served without auth; wrong password rejected; correct password issues a working cookie
+- [x] Gated routes/assets reject unauthenticated requests; expiry and logout work
+- [x] Legacy `/api/generate` behaviour unchanged and still public
+- [x] Cookie sign/verify covered by unit tests (`node:test`)
+- [x] smoke: fetch-level harness (wrangler unavailable) — login → shell
