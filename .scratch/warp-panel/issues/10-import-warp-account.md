@@ -17,11 +17,11 @@ error points at the Import form.
 **Blocked by:** 02 — WARP account Register/Rotate (KV), 01 — Password gate
 + panel shell
 
-**Status:** ready-for-agent
+**Status:** done — committed (`97b70b0`), worker wg-ticket-10
 
-- [ ] Conf import → account stored; submerged fields sane (reserved `[0,0,0]`, no token, unverified)
-- [ ] JSON import → full record incl. id/token/reserved; verified verdict when the API check passes, failed/`unverified` when it doesn't
-- [ ] Replace flow confirms before overwriting; failed import leaves the existing account untouched
-- [ ] Imported accounts render every subscription format the same as registered ones (spot-check `/sub` + `/sub/clash` + `/sub/wg`)
-- [ ] Rate-limit error on Register mentions Import
-- [ ] Unit tests for both parsers + extraction (`node:test`); fetch-level smoke
+  - [x] Conf import → account stored; submerged fields sane (reserved `[0,0,0]`, no token, unverified)
+  - [x] JSON import → full record incl. id/token/reserved; verified verdict when the API check passes, failed/`unverified` when it doesn't
+  - [x] Replace flow confirms before overwriting; failed import leaves the existing account untouched
+  - [x] Imported accounts render every subscription format the same as registered ones (spot-check `/sub` + `/sub/clash` + `/sub/wg`)
+  - [x] Rate-limit error on Register mentions Import
+  - [x] Unit tests for both parsers + extraction (`node:test`); fetch-level smoke
