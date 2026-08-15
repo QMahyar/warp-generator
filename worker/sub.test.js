@@ -262,10 +262,10 @@ test('missing account throws a readable SubscriptionError', () => {
 });
 
 test('unknown format throws a readable SubscriptionError', () => {
-  // NOTE: 'clash', 'singbox' and 'neko' are registered renderers since
-  // tickets 05/06/07 — use the next not-yet-shipped format ('wg') to prove
-  // the guard.
-  assert.throws(() => renderSubscription('wg', {}, { account: ACCOUNT_A, endpoints: ENDPOINTS }), /Unknown subscription format: "wg"/);
+  // NOTE: 'clash', 'singbox', 'neko' (tickets 05–07), then 'wg' and 'awg'
+  // (ticket 08) are all registered renderers now — use a nonsense format
+  // name to prove the guard.
+  assert.throws(() => renderSubscription('bogus', {}, { account: ACCOUNT_A, endpoints: ENDPOINTS }), /Unknown subscription format: "bogus"/);
   assert.throws(() => renderSubscription(undefined, {}, { account: ACCOUNT_A }), SubscriptionError);
 });
 

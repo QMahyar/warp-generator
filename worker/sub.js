@@ -13,6 +13,23 @@
  * CustomBean JSON with the sing-box wireguard outbound (the ticket-06
  * legacy shape + the §2.2 fields) as `cs`. See renderNeko.
  *
+ * Ticket 08 ships `wg` and `awg`:
+ *   - `wg`  — a ZIP archive (application/zip, storeless — see zip.js) of
+ *     one `.conf` per valid endpoint for the official WireGuard app
+ *     (§2.6: Android imports a .zip of confs). Conf = standard WG
+ *     [Interface] (PrivateKey, Address, DNS 1.1.1.1, MTU 1280) + [Peer]
+ *     (PublicKey, Endpoint, AllowedIPs 0.0.0.0/0, ::/0); when the stored
+ *     AWG record is enabled, the [Interface] also carries the AmneziaWG
+ *     Jc/Jmin/Jmax/S1–S4/H1–H4 lines (empty params omitted) and the
+ *     I1–I5 CPS lines verbatim — the J/S/H/I line style matching the
+ *     legacy buildWireguard format (api-handler.js; read-only).
+ *   - `awg` — base64 (whole-blob /sub envelope) of one `awg://` link per
+ *     valid endpoint for LxBox/INCY-style clients (§2.5 community scheme:
+ *     awg://<base64url of the AWG conf>#name). The conf ALWAYS carries
+ *     AWG params here: the stored record when enabled, else the legacy
+ *     defaults (settings.js DEFAULT_AWG — the same J/S/H set the legacy
+ *     builder hardcoded). See renderAwg / buildAwgLink.
+ *
  * Ticket 06 shipped the `singbox` format — a full minimal sing-box
  * `config.json` for SFA/SFI remote profiles: the 1.13+ WireGuard
  * ENDPOINT shape by default, the pre-1.13 wireguard OUTBOUND shape under
@@ -49,6 +66,8 @@
  */
 
 import { Buffer } from 'buffer';
+import { DEFAULT_AWG } from './settings.js';
+import { buildZip } from './zip.js';
 
 /** The registered WARP peer public key — same constant the legacy builders use. */
 export const WARP_PUB = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
@@ -510,6 +529,154 @@ export function renderNeko(opts, { account, endpoints } = {}) {
   return { body, contentType: 'text/plain; charset=utf-8' };
 }
 
+// ---- wg (ZIP of .confs — official WireGuard app, sub-formats.md §2.6) ----
+
+/** DNS line for the .conf files (the ticket's fixed value). */
+export const CONF_DNS = '1.1.1.1';
+
+/** Full-tunnel AllowedIPs line for the .conf files (spec). */
+export const CONF_ALLOWED_IPS = '0.0.0.0/0, ::/0';
+
+/**
+ * The .conf Address line: v4/32 plus v6/128 when the record has v6 (the
+ * same CIDR form every other renderer uses — sub links, clash ip, singbox
+ * address). The legacy buildWireguard emitted bare addresses; the official
+ * app's parser (ipaddress.c parse_cidr) defaults a bare address to /32, so
+ * both work — CIDR is the unambiguous standard for .conf files.
+ */
+function confAddress(account) {
+  const addresses = [`${account.v4}/32`];
+  if (account.v6) addresses.push(`${account.v6}/128`);
+  return addresses.join(', ');
+}
+
+/**
+ * One AmneziaWG param line per stored field, in the canonical conf order
+ * (Jc, Jmin, Jmax, S1–S4, H1–H4, I1–I5 — the order per docs.amnezia.org
+ * and the ticket), formatted exactly like the legacy buildWireguard lines
+ * (`Jc = 4`, `I1 = <b 0x…>` — the settings record stores I1–I5 as full
+ * CPS lines, emitted as-is). Empty params are omitted entirely. AWG off or
+ * absent → [] (plain WireGuard conf).
+ */
+export function awgConfLines(awg) {
+  if (!awg || awg.enabled !== true) return [];
+  const ORDER = ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1', 'I2', 'I3', 'I4', 'I5'];
+  const lines = [];
+  for (const field of ORDER) {
+    const value = awg[field];
+    if (typeof value !== 'string' || value === '') continue;
+    // I1–I5 are stored as COMPLETE CPS lines ("I1 = <b 0x…>", see
+    // settings.js) — emitted as-is; the J/S/H fields are bare values that
+    // get the legacy `Field = value` wrapping.
+    lines.push(field.startsWith('I') ? value : `${field} = ${value}`);
+  }
+  return lines;
+}
+
+/**
+ * Safe .conf filename for an endpoint: `warp-<host>-<port>.conf` with
+ * every character outside [a-zA-Z0-9.-] replaced by `-` — IPv6 colons
+ * (`2606:4700:…` → `2606-4700-…`), brackets and any path separators are
+ * neutralized, so the name can never smuggle a path (`../`, `C:\`): zip
+ * entry names are extracted to the filesystem by the importing app.
+ */
+export function confFileNameOf(ep) {
+  const host = String(ep.host)
+    .replace(/[^a-zA-Z0-9.-]/g, '-')
+    .replace(/\.{2,}/g, '.'); // no dot-dot runs (zip names are extracted to a filesystem)
+  return `warp-${host || 'endpoint'}-${ep.port}.conf`;
+}
+
+/**
+ * One .conf for an endpoint — standard WireGuard [Interface]/[Peer]
+ * (PrivateKey, Address v4[/v6], DNS 1.1.1.1, MTU 1280; PublicKey,
+ * Endpoint, AllowedIPs 0.0.0.0/0, ::/0 — full tunnel); the AmneziaWG
+ * lines slot between MTU and [Peer] when `awg` is enabled (same position
+ * as the legacy builder). IPv6 endpoints are re-bracketed in the Endpoint
+ * line (settings.js stores the host bracket-free). No trailing newline,
+ * matching the legacy buildWireguard output.
+ */
+export function buildWgConf(account, ep, awg) {
+  const lines = [
+    '[Interface]',
+    `PrivateKey = ${account.privateKey}`,
+    `Address = ${confAddress(account)}`,
+    `DNS = ${CONF_DNS}`,
+    `MTU = ${SUB_MTU}`,
+    ...awgConfLines(awg),
+    '',
+    '[Peer]',
+    `PublicKey = ${account.peerPublicKey}`,
+    `AllowedIPs = ${CONF_ALLOWED_IPS}`,
+    `Endpoint = ${authorityOf(ep)}`,
+  ];
+  return lines.join('\n');
+}
+
+/**
+ * The wg renderer: a ZIP archive (application/zip — the first binary
+ * payload in the registry) containing one .conf per valid endpoint. The
+ * WireGuard Android app imports a .zip of .confs directly (§2.6); the
+ * archive is storeless (zip.js) — no compression dependency in the
+ * bundle. Endpoint semantics are identical to every other renderer
+ * (resolveEndpoints — malformed skipped, zero valid → the fallback pair).
+ * `awg` enables the J/S/H/I lines inside each conf.
+ */
+export function renderWg(opts, { account, endpoints, awg } = {}) {
+  if (!account || typeof account.privateKey !== 'string' || !account.privateKey) {
+    throw new SubscriptionError('No WARP account stored — register one in the panel first.');
+  }
+  const entries = resolveEndpoints(endpoints).map((ep) => ({
+    name: confFileNameOf(ep),
+    data: buildWgConf(account, ep, awg),
+  }));
+  return { body: buildZip(entries), contentType: 'application/zip' };
+}
+
+// ---- awg (awg:// links — LxBox/INCY, sub-formats.md §2.5) ----
+
+/**
+ * The record the awg renderer falls back to when the stored AWG record is
+ * off/absent: settings.js DEFAULT_AWG — the same Jc/Jmin/Jmax/S1/S2/H1–H4
+ * literals the legacy buildWireguard hardcoded into every conf (I1–I5 are
+ * unset there too, so no I lines are emitted; AmneziaWG treats I lines as
+ * optional). This endpoint exists for AWG-capable clients, so its confs
+ * never lose the obfuscation params — plain WireGuard confs are not an
+ * option here.
+ */
+const AWG_LEGACY_DEFAULTS = { enabled: true, ...DEFAULT_AWG };
+
+/**
+ * One awg:// link (community scheme §2.5, docs.incy.cc / LxBox):
+ *   awg://<base64url of the .conf>#<name>
+ * The conf ALWAYS carries AWG params: the stored record when enabled,
+ * else AWG_LEGACY_DEFAULTS. The segment is padded URL-safe base64 (the
+ * same RFC 4648 §5 alphabet the neko fragment uses; padding retained —
+ * decoders accept it, and the round-trip is exact). `#name` = the shared
+ * `warp-<host>:<port>` convention (IPv6 re-bracketed), matching the zip
+ * filenames (minus .conf) and the clash/singbox tags — a subscriber can
+ * correlate one endpoint across every format.
+ */
+export function buildAwgLink(account, ep, awg) {
+  const effective = awg && awg.enabled === true ? awg : AWG_LEGACY_DEFAULTS;
+  const conf = buildWgConf(account, ep, effective);
+  return `awg://${toUrlSafeBase64(conf)}#${proxyNameOf(ep)}`;
+}
+
+/**
+ * The awg renderer: base64 (whole-blob /sub envelope) of one awg:// link
+ * per valid endpoint. Endpoint semantics identical to every other
+ * renderer. The link carries the AWG params always (buildAwgLink).
+ */
+export function renderAwg(opts, { account, endpoints, awg } = {}) {
+  if (!account || typeof account.privateKey !== 'string' || !account.privateKey) {
+    throw new SubscriptionError('No WARP account stored — register one in the panel first.');
+  }
+  const lines = resolveEndpoints(endpoints).map((ep) => buildAwgLink(account, ep, awg));
+  const body = Buffer.from(lines.join('\n')).toString('base64');
+  return { body, contentType: 'text/plain; charset=utf-8' };
+}
+
 // ---- the `sub` renderer ----
 
 /**
@@ -537,7 +704,8 @@ const RENDERERS = {
   clash: renderClash,
   singbox: renderSingbox,
   neko: renderNeko,
-  // Later tickets: wg (zip), awg.
+  wg: renderWg,
+  awg: renderAwg,
 };
 
 /**

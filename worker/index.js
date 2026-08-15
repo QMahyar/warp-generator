@@ -39,6 +39,23 @@
  *                               no-session/token/404/6 h contract; missing
  *                               account → 503; AWG ignored (not
  *                               expressible).
+ *   - GET  /api/<SUB_PATH>/sub/wg — ZIP of one .conf per valid endpoint
+ *                               (ticket 08): storeless archive for the
+ *                               official WireGuard app (imports a .zip of
+ *                               confs, §2.6). Plain WG confs by default;
+ *                               AmneziaWG confs (Jc/Jmin/Jmax/S1–S4/H1–H4/
+ *                               I1–I5 lines) when the stored AWG record is
+ *                               enabled. Same no-session/token/404/6 h
+ *                               contract; missing account → 503;
+ *                               Content-Type application/zip.
+ *   - GET  /api/<SUB_PATH>/sub/awg — awg:// links (ticket 08): base64 of
+ *                               one `awg://<base64url conf>#name` link per
+ *                               valid endpoint (community scheme §2.5) for
+ *                               LxBox/INCY-style clients. The conf always
+ *                               carries AWG params (stored record, or the
+ *                               legacy defaults when off/absent). Same
+ *                               no-session/token/404/6 h contract; missing
+ *                               account → 503.
  *   - everything else         — password-gated: unauthenticated requests get
  *                               the login page (HTML) or 401 (any /api/*);
  *                               authenticated requests get the panel shell at
@@ -319,6 +336,48 @@ async function handleSubNeko(request, env) {
   });
 }
 
+/**
+ * GET /api/<token>/sub/wg — the WireGuard-app ZIP subscription (ticket
+ * 08): one .conf per valid endpoint (plain WG, or AmneziaWG with J/S/H/I
+ * lines when the stored AWG record is enabled). Same contract as
+ * handleSubClash — account + endpoints + AWG are all read from KV; the
+ * renderer returns binary (Uint8Array), which Response passes through
+ * as application/zip.
+ */
+async function handleSubWg(request, env) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const account = await readAccount(env.ACCOUNT);
+  if (!account) return missingAccount();
+  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
+  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
+  const awg = await readAwg(env.AWG); // null when off/absent — plain confs
+  const { body, contentType } = renderSubscription('wg', {}, { account, endpoints, awg });
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
+  });
+}
+
+/**
+ * GET /api/<token>/sub/awg — the awg:// links subscription (ticket 08):
+ * base64 of one `awg://<base64url conf>#name` link per valid endpoint.
+ * Same contract as handleSubWg; the renderer folds the AWG record into
+ * every conf (legacy defaults when off/absent) — see renderAwg.
+ */
+async function handleSubAwg(request, env) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const account = await readAccount(env.ACCOUNT);
+  if (!account) return missingAccount();
+  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
+  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
+  const awg = await readAwg(env.AWG); // null when off/absent — legacy AWG defaults in the links
+  const { body, contentType } = renderSubscription('awg', {}, { account, endpoints, awg });
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
+  });
+}
+
 async function isAuthorized(request, env) {
   if (!env.PASSWORD) return false; // unconfigured: everything stays gated
   const cookies = parseCookies(request.headers.get('Cookie') || '');
@@ -345,7 +404,7 @@ export default {
     if (url.pathname === '/api/auth/login') return handleLogin(request, env);
     if (url.pathname === '/api/auth/logout') return handleLogout(request, env);
 
-    // Subscription routes (tickets 04–07) — BEFORE the auth gate:
+    // Subscription routes (tickets 04–08) — BEFORE the auth gate:
     // no session, the path token IS the credential. Wrong/missing token →
     // 404 (never 401, which would reveal the route exists). The sub-format
     // routes are matched before the generic `/sub` pattern (the regexes
@@ -364,6 +423,16 @@ export default {
     if (nekoMatch) {
       if (!env.SUB_PATH || !subPathMatches(nekoMatch[1], env.SUB_PATH)) return notFound();
       return handleSubNeko(request, env);
+    }
+    const wgZipMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/wg\/?$/);
+    if (wgZipMatch) {
+      if (!env.SUB_PATH || !subPathMatches(wgZipMatch[1], env.SUB_PATH)) return notFound();
+      return handleSubWg(request, env);
+    }
+    const awgMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/awg\/?$/);
+    if (awgMatch) {
+      if (!env.SUB_PATH || !subPathMatches(awgMatch[1], env.SUB_PATH)) return notFound();
+      return handleSubAwg(request, env);
     }
     const subMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/?$/);
     if (subMatch) {
