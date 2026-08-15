@@ -6,9 +6,9 @@
  * The single seam every subscription format renders through (spec —
  * "Implementation Decisions → Seam"). Pure: no fetch, no env, no KV — the
  * route handlers read KV and pass plain data in. Later tickets add more
- * renderers to the RENDERERS registry (clash, singbox, neko, wg-zip, awg).
+ * renderers to the RENDERERS registry (singbox, neko, wg-zip, awg).
  *
- * This ticket ships the `sub` format — the wireguard:// link family:
+ * Ticket 04 shipped the `sub` format — the wireguard:// link family:
  *
  *   opts.scheme = 'wireguard' (default)  — one v2rayN-family `wireguard://`
  *     link per valid endpoint: private key in userinfo (url-encoded),
@@ -144,6 +144,128 @@ export function buildThroneLink(account, ep) {
   );
 }
 
+// ---- clash (Clash Meta / Mihomo — sub-formats.md §2.4) ----
+
+/**
+ * Legacy reserved→bytes (api-handler.js reservedToBytes, unmodified):
+ * base64-decode the record's reserved field to the `[a,b,c]` bytes clash
+ * expects. Empty or unparseable → [0,0,0]. Note: a record whose reserved
+ * does not decode to exactly 3 bytes would produce a different-length
+ * array here (same as the legacy builder) — mihomo rejects non-3-byte
+ * `reserved`, but WARP's client_id always decodes to 3 bytes.
+ */
+function reservedToBytes(reserved) {
+  if (!reserved) return [0, 0, 0];
+  try { return Array.from(Buffer.from(reserved, 'base64')); }
+  catch { return [0, 0, 0]; }
+}
+
+/** The endpoint's proxy name — `warp-<host>:<port>` (IPv6 re-bracketed). */
+function proxyNameOf(ep) {
+  return `warp-${authorityOf(ep)}`;
+}
+
+/**
+ * The mihomo `amnezia-wg-option` block lines (already indented for the
+ * proxy body), or null when AWG is off/absent. Only the keys mihomo's
+ * AmneziaWGOption documents are emitted: jc/jmin/jmax/s1–s4 (ints),
+ * h1–h4 (strings — numeric or v2 range form) and i1–i5 (CPS chains).
+ * Empty fields are omitted entirely (mihomo's genIpcConf likewise skips
+ * zero/empty option values). The settings record stores I1–I5 as full
+ * .conf lines ("I1 = <b 0x…>", see settings.js); clash's `i` values are
+ * the chain alone (mihomo passes the YAML value verbatim into the
+ * amneziawg-go uapi `i1=…` line, which parses `<tag …>` elements), so the
+ * "I<n> = " prefix is stripped here. No non-empty values → null (a bare
+ * `amnezia-wg-option:` would parse as nil and be treated as absent
+ * anyway).
+ */
+export function buildAmneziaWgOption(awg) {
+  if (!awg || awg.enabled !== true) return null;
+  const NUMERIC = [['Jc', 'jc'], ['Jmin', 'jmin'], ['Jmax', 'jmax'], ['S1', 's1'], ['S2', 's2'], ['S3', 's3'], ['S4', 's4']];
+  const STRING = [['H1', 'h1'], ['H2', 'h2'], ['H3', 'h3'], ['H4', 'h4'], ['I1', 'i1'], ['I2', 'i2'], ['I3', 'i3'], ['I4', 'i4'], ['I5', 'i5']];
+  const out = [];
+  for (const [stored, yaml] of NUMERIC) {
+    const v = awg[stored];
+    if (typeof v === 'string' && /^\d+$/.test(v) && v !== '') out.push(`      ${yaml}: ${v}`);
+  }
+  for (const [stored, yaml] of STRING) {
+    const v = awg[stored];
+    if (typeof v !== 'string' || v === '') continue;
+    const chain = v.replace(/^I[1-5]\s*=\s*/, ''); // .conf "I<n> = " prefix → bare chain
+    out.push(`      ${yaml}: ${yamlQuote(chain)}`);
+  }
+  return out.length > 0 ? out : null;
+}
+
+/** Double-quote a YAML scalar (values here never contain quotes/backslashes). */
+function yamlQuote(s) {
+  return `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * One `type: wireguard` proxy block for an endpoint — the §2.4 shape
+ * (name/type/server/port/ip[+ipv6]/private-key/public-key/reserved/udp/
+ * mtu/remote-dns-resolve/dns, then amnezia-wg-option when AWG is on).
+ * `server` is the stored host (IPv6 unbracketed — settings.js stores it
+ * bracket-free; the bracketed form is only for the name/authority).`
+ */
+export function buildClashProxy(account, ep, awg) {
+  const lines = [
+    `  - name: ${yamlQuote(proxyNameOf(ep))}`,
+    '    type: wireguard',
+    `    server: ${yamlQuote(ep.host)}`,
+    `    port: ${ep.port}`,
+    `    ip: ${yamlQuote(account.v4)}`,
+  ];
+  if (account.v6) lines.push(`    ipv6: ${yamlQuote(account.v6)}`);
+  lines.push(
+    `    private-key: ${yamlQuote(account.privateKey)}`,
+    `    public-key: ${yamlQuote(account.peerPublicKey)}`,
+    `    reserved: [${reservedToBytes(account.reserved).join(',')}]`,
+    '    udp: true',
+    `    mtu: ${SUB_MTU}`,
+    '    remote-dns-resolve: true',
+    '    dns: [1.1.1.1]',
+  );
+  const awgOption = buildAmneziaWgOption(awg);
+  if (awgOption) {
+    lines.push('    amnezia-wg-option:');
+    lines.push(...awgOption);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The clash renderer: raw YAML (never base64), one wireguard proxy per
+ * valid endpoint, a minimal `proxy-groups` (one select group `PROXY` with
+ * every proxy name) and `rules` (MATCH,PROXY). Endpoint semantics are
+ * identical to the `sub` renderer (resolveEndpoints — malformed skipped,
+ * zero valid → the fallback pair). `awg` enables per-proxy
+ * amnezia-wg-option. Content-type matches the reference implementation
+ * (juerson wireguard-subconverter-worker serves clash as
+ * text/plain; charset=utf-8); clash clients parse the body as YAML
+ * regardless of content type.
+ */
+export function renderClash(opts, { account, endpoints, awg } = {}) {
+  if (!account || typeof account.privateKey !== 'string' || !account.privateKey) {
+    throw new SubscriptionError('No WARP account stored — register one in the panel first.');
+  }
+  const eps = resolveEndpoints(endpoints);
+  const body = [
+    'proxies:',
+    ...eps.map((ep) => buildClashProxy(account, ep, awg)),
+    'proxy-groups:',
+    '  - name: "PROXY"',
+    '    type: select',
+    '    proxies:',
+    ...eps.map((ep) => `      - ${yamlQuote(proxyNameOf(ep))}`),
+    'rules:',
+    '  - MATCH,PROXY',
+    '',
+  ].join('\n');
+  return { body, contentType: 'text/plain; charset=utf-8' };
+}
+
 // ---- the `sub` renderer ----
 
 /**
@@ -168,7 +290,8 @@ export function renderSub(opts, { account, endpoints } = {}) {
 
 const RENDERERS = {
   sub: renderSub,
-  // Later tickets: clash, singbox, neko, wg (zip), awg.
+  clash: renderClash,
+  // Later tickets: singbox, neko, wg (zip), awg.
 };
 
 /**

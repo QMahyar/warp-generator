@@ -262,7 +262,9 @@ test('missing account throws a readable SubscriptionError', () => {
 });
 
 test('unknown format throws a readable SubscriptionError', () => {
-  assert.throws(() => renderSubscription('clash', {}, { account: ACCOUNT_A, endpoints: ENDPOINTS }), /Unknown subscription format: "clash"/);
+  // NOTE: 'clash' is a registered renderer since ticket 05 — use the next
+  // not-yet-shipped format ('singbox') to prove the guard.
+  assert.throws(() => renderSubscription('singbox', {}, { account: ACCOUNT_A, endpoints: ENDPOINTS }), /Unknown subscription format: "singbox"/);
   assert.throws(() => renderSubscription(undefined, {}, { account: ACCOUNT_A }), SubscriptionError);
 });
 

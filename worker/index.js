@@ -17,6 +17,12 @@
  *                               the credential (ADR 0006); wrong/missing
  *                               token → 404 (never 401). Cached 6 h at the
  *                               edge. Registered before the auth gate.
+ *   - GET  /api/<SUB_PATH>/sub/clash — raw Clash YAML (ticket 05): one
+ *                               wireguard proxy per valid endpoint, minimal
+ *                               proxy-groups/rules, amnezia-wg-option per
+ *                               proxy when the stored AWG record is enabled.
+ *                               Same no-session/token/404/6 h contract as
+ *                               /sub; missing account → 503.
  *   - everything else         — password-gated: unauthenticated requests get
  *                               the login page (HTML) or 401 (any /api/*);
  *                               authenticated requests get the panel shell at
@@ -208,27 +214,48 @@ function notFound() {
   });
 }
 
+function missingAccount() {
+  return new Response(
+    JSON.stringify({ error: 'No WARP account registered yet — open the panel and run Register first.' }),
+    { status: 503, headers: { 'Content-Type': 'application/json' } },
+  );
+}
+
 /**
  * GET /api/<token>/sub — the subscription payload (ticket 04).
  * No session — the path token IS the credential (ADR 0006); the router
  * 404s wrong/missing tokens before this handler. Reads ACCOUNT + ENDPOINTS
  * from KV only (never the network): account record in, links out. Missing
  * account → 503 with a readable message. AWG is ignored by the link
- * formats (the Throne junk params are legacy parity, not settings) —
- * later format tickets read it via readAwg.
+ * formats (the Throne junk params are legacy parity, not settings).
  */
 async function handleSub(request, env, url) {
   if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
   const account = await readAccount(env.ACCOUNT);
-  if (!account) {
-    return new Response(
-      JSON.stringify({ error: 'No WARP account registered yet — open the panel and run Register first.' }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } },
-    );
-  }
+  if (!account) return missingAccount();
   const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
   const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
   const { body, contentType } = renderSubscription('sub', { scheme: url.searchParams.get('scheme') }, { account, endpoints, awg: null });
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
+  });
+}
+
+/**
+ * GET /api/<token>/sub/clash — the Clash YAML subscription (ticket 05).
+ * Same contract as handleSub; additionally reads the AWG record from KV
+ * and passes it to the renderer (per-proxy amnezia-wg-option when the
+ * stored record is enabled and carries params; absent → no option).
+ */
+async function handleSubClash(request, env) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const account = await readAccount(env.ACCOUNT);
+  if (!account) return missingAccount();
+  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
+  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
+  const awg = await readAwg(env.AWG); // null when off/absent — no amnezia-wg-option
+  const { body, contentType } = renderSubscription('clash', {}, { account, endpoints, awg });
   return new Response(body, {
     status: 200,
     headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
@@ -261,9 +288,15 @@ export default {
     if (url.pathname === '/api/auth/login') return handleLogin(request, env);
     if (url.pathname === '/api/auth/logout') return handleLogout(request, env);
 
-    // Subscription route (ticket 04) — BEFORE the auth gate: no session, the
-    // path token IS the credential. Wrong/missing token → 404 (never 401,
-    // which would reveal the route exists).
+    // Subscription routes (tickets 04 + 05) — BEFORE the auth gate: no
+    // session, the path token IS the credential. Wrong/missing token → 404
+    // (never 401, which would reveal the route exists). `/sub/clash` is
+    // matched before the generic `/sub` pattern (they are disjoint anyway).
+    const clashMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/clash\/?$/);
+    if (clashMatch) {
+      if (!env.SUB_PATH || !subPathMatches(clashMatch[1], env.SUB_PATH)) return notFound();
+      return handleSubClash(request, env);
+    }
     const subMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/?$/);
     if (subMatch) {
       if (!env.SUB_PATH || !subPathMatches(subMatch[1], env.SUB_PATH)) return notFound();
