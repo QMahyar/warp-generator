@@ -6,8 +6,8 @@ for one endpoint. Importable by NekoBox desktop.
 
 **Blocked by:** 04 — /sub — wireguard:// lines + ?scheme=wg
 
-**Status:** ready-for-agent
+**Status:** done — committed (`3925e73`), worker wg-ticket-07
 
-- [ ] Decoding the payload yields one `nekoray://custom#` link per endpoint
-- [ ] Wrapped JSON matches the CustomBean shape (docs/research/sub-formats.md §2.2)
-- [ ] Seam unit-tested (`node:test`); `wrangler dev` smoke
+  - [x] Decoding the payload yields one `nekoray://custom#` link per endpoint
+  - [x] Wrapped JSON matches the CustomBean shape (docs/research/sub-formats.md §2.2)
+  - [x] Seam unit-tested (`node:test`); `wrangler dev` smoke
