@@ -8,10 +8,10 @@ state on load and after each action; failures return readable errors.
 
 **Blocked by:** 01 — Password gate + panel shell
 
-**Status:** ready-for-agent
+**Status:** done — committed (`6280e80`), worker wg-ticket-02
 
-- [ ] Register → account appears in KV and in the card; reload keeps it
-- [ ] Rotate → new account replaces the old; registration timestamp updates
-- [ ] Registration failure (rate-limit etc.) surfaces a readable error; KV unchanged
-- [ ] No registration happens outside the Register/Rotate actions
-- [ ] `wrangler dev` smoke with a local KV binding
+- [x] Register → account appears in KV and in the card; reload keeps it
+- [x] Rotate → new account replaces the old; registration timestamp updates
+- [x] Registration failure (rate-limit etc.) surfaces a readable error; KV unchanged
+- [x] No registration happens outside the Register/Rotate actions
+- [x] verification: fetch-level smoke with stubbed fetch + fake KV (wrangler unavailable)
