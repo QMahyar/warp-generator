@@ -9,9 +9,9 @@ base64.
 **Blocked by:** 04 — /sub — wireguard:// lines + ?scheme=wg, 03 — Panel
 settings (for the AWG option)
 
-**Status:** ready-for-agent
+**Status:** done — committed (`4679b49`), worker wg-ticket-05
 
-- [ ] YAML parses with a Mihomo parser; one proxy per endpoint, valid proxy-groups/rules
-- [ ] AWG on → `amnezia-wg-option` present and correct; off → absent
-- [ ] IPv6 endpoint lines produce ipv6 entries; empty list → fallback endpoints
-- [ ] Seam unit-tested (`node:test`); `wrangler dev` smoke
+  - [x] YAML parses with a Mihomo parser; one proxy per endpoint, valid proxy-groups/rules
+  - [x] AWG on → `amnezia-wg-option` present and correct; off → absent
+  - [x] IPv6 endpoint lines produce ipv6 entries; empty list → fallback endpoints
+  - [x] Seam unit-tested (`node:test`); `wrangler dev` smoke
