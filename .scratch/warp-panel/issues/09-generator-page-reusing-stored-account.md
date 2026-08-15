@@ -11,10 +11,10 @@ with this ticket.
 **Blocked by:** 01 — Password gate + panel shell, 02 — WARP account
 Register/Rotate (KV)
 
-**Status:** ready-for-agent
+**Status:** done — committed (`a6f8a8a`), worker wg-ticket-09
 
-- [ ] All formats generate from the stored account; QR where supported; downloads named as before
-- [ ] No `/reg` calls happen during generation (verified in logs)
-- [ ] Community-DNS forces "all sites"; wiresock/husi/clash parity quirks preserved
-- [ ] Legacy `/api/generate` routes removed; panel links updated
-- [ ] `wrangler dev` smoke across formats
+  - [x] All formats generate from the stored account; QR where supported; downloads named as before
+  - [x] No `/reg` calls happen during generation (verified in logs)
+  - [x] Community-DNS forces "all sites"; wiresock/husi/clash parity quirks preserved
+  - [x] Legacy `/api/generate` routes removed; panel links updated
+  - [x] `wrangler dev` smoke across formats
