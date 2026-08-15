@@ -25,11 +25,10 @@
  *     legacy buildWireguard format (api-handler.js; read-only).
  *   - `awg` — base64 (whole-blob /sub envelope) of one `awg://` link per
  *     valid endpoint for LxBox/INCY-style clients (§2.5 community scheme:
- *     awg://<base64url of the AWG conf>#name). The conf ALWAYS carries
- *     AWG params here: the stored record when enabled, else the legacy
- *     defaults (settings.js DEFAULT_AWG — the same J/S/H set the legacy
- *     builder hardcoded). See renderAwg / buildAwgLink.
- *
+ *     awg://<base64url of the conf>#name). The conf carries the stored
+ *     AWG params when the record is enabled, else a plain WireGuard conf —
+ *     the toggle governs which formats carry obfuscation (clash, wg-zip
+ *     and awg renderers all go plain when off). See renderAwg / buildAwgLink.
  * Ticket 06 shipped the `singbox` format — a full minimal sing-box
  * `config.json` for SFA/SFI remote profiles: the 1.13+ WireGuard
  * ENDPOINT shape by default, the pre-1.13 wireguard OUTBOUND shape under
@@ -66,7 +65,6 @@
  */
 
 import { Buffer } from 'buffer';
-import { DEFAULT_AWG } from './settings.js';
 import { buildZip } from './zip.js';
 
 /** The registered WARP peer public key — same constant the legacy builders use. */
@@ -636,21 +634,11 @@ export function renderWg(opts, { account, endpoints, awg } = {}) {
 // ---- awg (awg:// links — LxBox/INCY, sub-formats.md §2.5) ----
 
 /**
- * The record the awg renderer falls back to when the stored AWG record is
- * off/absent: settings.js DEFAULT_AWG — the same Jc/Jmin/Jmax/S1/S2/H1–H4
- * literals the legacy buildWireguard hardcoded into every conf (I1–I5 are
- * unset there too, so no I lines are emitted; AmneziaWG treats I lines as
- * optional). This endpoint exists for AWG-capable clients, so its confs
- * never lose the obfuscation params — plain WireGuard confs are not an
- * option here.
- */
-const AWG_LEGACY_DEFAULTS = { enabled: true, ...DEFAULT_AWG };
-
-/**
  * One awg:// link (community scheme §2.5, docs.incy.cc / LxBox):
  *   awg://<base64url of the .conf>#<name>
- * The conf ALWAYS carries AWG params: the stored record when enabled,
- * else AWG_LEGACY_DEFAULTS. The segment is padded URL-safe base64 (the
+ * The conf is the stored AWG conf when the record is enabled (buildWgConf
+ * with the record), else a plain WireGuard conf — the AWG toggle governs
+ * obfuscation here too. The segment is padded URL-safe base64 (the
  * same RFC 4648 §5 alphabet the neko fragment uses; padding retained —
  * decoders accept it, and the round-trip is exact). `#name` = the shared
  * `warp-<host>:<port>` convention (IPv6 re-bracketed), matching the zip
@@ -658,7 +646,7 @@ const AWG_LEGACY_DEFAULTS = { enabled: true, ...DEFAULT_AWG };
  * correlate one endpoint across every format.
  */
 export function buildAwgLink(account, ep, awg) {
-  const effective = awg && awg.enabled === true ? awg : AWG_LEGACY_DEFAULTS;
+  const effective = awg && awg.enabled === true ? awg : null;
   const conf = buildWgConf(account, ep, effective);
   return `awg://${toUrlSafeBase64(conf)}#${proxyNameOf(ep)}`;
 }
@@ -666,7 +654,8 @@ export function buildAwgLink(account, ep, awg) {
 /**
  * The awg renderer: base64 (whole-blob /sub envelope) of one awg:// link
  * per valid endpoint. Endpoint semantics identical to every other
- * renderer. The link carries the AWG params always (buildAwgLink).
+ * renderer. The link carries AWG params only when the stored record is
+ * enabled (buildAwgLink); off → plain confs, like the wg-zip renderer.
  */
 export function renderAwg(opts, { account, endpoints, awg } = {}) {
   if (!account || typeof account.privateKey !== 'string' || !account.privateKey) {

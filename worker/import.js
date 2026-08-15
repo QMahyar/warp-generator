@@ -152,7 +152,9 @@ function parseConfAddresses(value) {
  *   - config.interface.addresses.v4 / v6 — v4 required
  *   - config.interface.private_key — required (the client's own key lives
  *                             with the operator — the real enableWarp
- *                             response never carries it)
+ *                             response never carries it; a top-level
+ *                             `private_key` beside id/token is accepted
+ *                             too, for tooling that exports it there)
  *   - config.peers[0].public_key — required (first peer, like
  *                             extractAccountRecord)
  *   - reserved               — config.client_id (base64, mirroring
@@ -186,7 +188,8 @@ export function parseRegistrationJson(text) {
   if (!peer) {
     throw new AccountError('Missing peers[].public_key — the WARP server public key is required.');
   }
-  const privateKey = requireKey(iface && iface.private_key,
+  const privateKey = requireKey(
+    (iface && iface.private_key) || (typeof base.private_key === 'string' ? base.private_key.trim() : ''),
     'The interface.private_key',
     'Missing interface.private_key — the client\'s own key lives with the operator; paste it into the JSON (or import the .conf instead).');
   const clientId = typeof base.id === 'string' && base.id ? base.id : null;

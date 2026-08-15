@@ -186,7 +186,7 @@ async function handleImportAccount(request, env) {
   if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
   let text;
   try {
-    const body = await readLoginBody(request);
+    const body = await readJsonOrFormBody(request);
     if (typeof body.text !== 'string') {
       return json({ success: false, message: 'Expected a JSON body with a "text" field — paste a WireGuard .conf or registration JSON.' }, 400);
     }
@@ -219,7 +219,7 @@ async function handleImportAccount(request, env) {
 }
 
 /** Login form posts urlencoded by default; JSON is accepted for API callers. */
-async function readLoginBody(request) {
+async function readJsonOrFormBody(request) {
   const text = await request.text();
   if (!text) return {};
   const contentType = request.headers.get('content-type') || '';
@@ -234,7 +234,7 @@ async function handleLogin(request, env) {
   if (!env.PASSWORD) {
     return new Response(null, { status: 303, headers: { Location: '/?error=config' } });
   }
-  const body = await readLoginBody(request);
+  const body = await readJsonOrFormBody(request);
   const ok = await verifyPassword(String(body.password ?? ''), env.PASSWORD);
   if (!ok) {
     return new Response(null, { status: 303, headers: { Location: '/?error=invalid' } });
@@ -274,7 +274,7 @@ async function handleGetSettings(request, env) {
 async function handleSaveEndpoints(request, env) {
   if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
   try {
-    const body = await readLoginBody(request);
+    const body = await readJsonOrFormBody(request);
     if (typeof body.text !== 'string') {
       return json({ success: false, message: 'Expected a JSON body with a "text" field.' }, 400);
     }
@@ -292,7 +292,7 @@ async function handleSaveEndpoints(request, env) {
 async function handleSaveAwg(request, env) {
   if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
   try {
-    const body = await readLoginBody(request);
+    const body = await readJsonOrFormBody(request);
     const { awg, invalid } = parseAwgParams(body);
     const saved = await writeAwg(env.AWG, awg);
     return json({ success: true, awg: saved, invalid });
@@ -325,6 +325,30 @@ function missingAccount() {
 }
 
 /**
+ * Shared core for the six subscription routes (tickets 04–08): method
+ * gate, ACCOUNT + ENDPOINTS reads in parallel, missing-account 503,
+ * renderer dispatch and the 6 h cache envelope. `opts` are the renderer
+ * options derived from URL query params (scheme/legacy); `needsAwg`
+ * additionally reads the AWG record for the renderers that can express it
+ * (clash, wg-zip, awg).
+ */
+async function handleSubFormat(request, env, url, format, { needsAwg = false, opts = {} } = {}) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const [account, stored, awg] = await Promise.all([
+    readAccount(env.ACCOUNT),
+    readEndpoints(env.ENDPOINTS),
+    needsAwg ? readAwg(env.AWG) : null,
+  ]);
+  if (!account) return missingAccount();
+  const endpoints = stored ? parseEndpointList(stored.text).endpoints : []; // null when absent/empty — fallback territory
+  const { body, contentType } = renderSubscription(format, opts, { account, endpoints, awg });
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
+  });
+}
+
+/**
  * GET /api/<token>/sub — the subscription payload (ticket 04).
  * No session — the path token IS the credential (ADR 0006); the router
  * 404s wrong/missing tokens before this handler. Reads ACCOUNT + ENDPOINTS
@@ -333,36 +357,16 @@ function missingAccount() {
  * formats (the Throne junk params are legacy parity, not settings).
  */
 async function handleSub(request, env, url) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
-  const account = await readAccount(env.ACCOUNT);
-  if (!account) return missingAccount();
-  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
-  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
-  const { body, contentType } = renderSubscription('sub', { scheme: url.searchParams.get('scheme') }, { account, endpoints, awg: null });
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
-  });
+  return handleSubFormat(request, env, url, 'sub', { opts: { scheme: url.searchParams.get('scheme') } });
 }
 
 /**
  * GET /api/<token>/sub/clash — the Clash YAML subscription (ticket 05).
- * Same contract as handleSub; additionally reads the AWG record from KV
- * and passes it to the renderer (per-proxy amnezia-wg-option when the
- * stored record is enabled and carries params; absent → no option).
+ * Adds the AWG record read (per-proxy amnezia-wg-option when the stored
+ * record is enabled and carries params; absent → no option).
  */
 async function handleSubClash(request, env) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
-  const account = await readAccount(env.ACCOUNT);
-  if (!account) return missingAccount();
-  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
-  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
-  const awg = await readAwg(env.AWG); // null when off/absent — no amnezia-wg-option
-  const { body, contentType } = renderSubscription('clash', {}, { account, endpoints, awg });
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
-  });
+  return handleSubFormat(request, env, null, 'clash', { needsAwg: true });
 }
 
 /**
@@ -373,16 +377,7 @@ async function handleSubClash(request, env) {
  * skipped entirely (same decision as handleSub).
  */
 async function handleSubSingbox(request, env, url) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
-  const account = await readAccount(env.ACCOUNT);
-  if (!account) return missingAccount();
-  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
-  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
-  const { body, contentType } = renderSubscription('singbox', { legacy: url.searchParams.get('legacy') }, { account, endpoints, awg: null });
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
-  });
+  return handleSubFormat(request, env, url, 'singbox', { opts: { legacy: url.searchParams.get('legacy') } });
 }
 
 /**
@@ -394,58 +389,27 @@ async function handleSubSingbox(request, env, url) {
  * wrapped outbound — the KV read is skipped (same decision as handleSub).
  */
 async function handleSubNeko(request, env) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
-  const account = await readAccount(env.ACCOUNT);
-  if (!account) return missingAccount();
-  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
-  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
-  const { body, contentType } = renderSubscription('neko', {}, { account, endpoints, awg: null });
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
-  });
+  return handleSubFormat(request, env, null, 'neko');
 }
 
 /**
  * GET /api/<token>/sub/wg — the WireGuard-app ZIP subscription (ticket
  * 08): one .conf per valid endpoint (plain WG, or AmneziaWG with J/S/H/I
- * lines when the stored AWG record is enabled). Same contract as
- * handleSubClash — account + endpoints + AWG are all read from KV; the
- * renderer returns binary (Uint8Array), which Response passes through
- * as application/zip.
+ * lines when the stored AWG record is enabled). The renderer returns
+ * binary (Uint8Array), which Response passes through as application/zip.
  */
 async function handleSubWg(request, env) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
-  const account = await readAccount(env.ACCOUNT);
-  if (!account) return missingAccount();
-  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
-  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
-  const awg = await readAwg(env.AWG); // null when off/absent — plain confs
-  const { body, contentType } = renderSubscription('wg', {}, { account, endpoints, awg });
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
-  });
+  return handleSubFormat(request, env, null, 'wg', { needsAwg: true });
 }
 
 /**
  * GET /api/<token>/sub/awg — the awg:// links subscription (ticket 08):
  * base64 of one `awg://<base64url conf>#name` link per valid endpoint.
- * Same contract as handleSubWg; the renderer folds the AWG record into
- * every conf (legacy defaults when off/absent) — see renderAwg.
+ * The conf carries AWG params only when the stored record is enabled
+ * (off → plain confs, like the wg-zip renderer) — see renderAwg.
  */
 async function handleSubAwg(request, env) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
-  const account = await readAccount(env.ACCOUNT);
-  if (!account) return missingAccount();
-  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
-  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
-  const awg = await readAwg(env.AWG); // null when off/absent — legacy AWG defaults in the links
-  const { body, contentType } = renderSubscription('awg', {}, { account, endpoints, awg });
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
-  });
+  return handleSubFormat(request, env, null, 'awg', { needsAwg: true });
 }
 
 async function isAuthorized(request, env) {

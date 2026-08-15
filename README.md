@@ -1,286 +1,163 @@
-# WARP Configuration Generator
+# WARP Subscription Panel
 
 [Русский](README_ru.md) | [فارسی](README_fa.md) | **English**
 
-![WARP Generator screenshot](.github/assets/screenshot.png)
+Password-gated Cloudflare Worker that manages **one** registered WARP
+account and serves per-client WireGuard subscription links over a secret
+path. Built as a lean BPB-style panel: no VLESS/Trojan, no routing rules,
+no chain proxies — just your WARP keys, your endpoints, seven config
+formats, everywhere.
 
-Open-source generator for Cloudflare WARP configs (WireGuard / AmneziaWG / Clash / Throne / Nekoray / Husi / Karing / WireSock).
-This is the **public** branch — no captcha, no analytics, no promo blocks. Deploy your own.
+The legacy WARP Configuration Generator (Next.js UI + per-request
+registration) is retired — see [docs/adr/0001.md](docs/adr/0001.md) and the
+[Legacy](#-legacy) section.
 
-## 🚀 Quick Deployment
+## Features
 
-### Docker (recommended)
+- **One shared WARP account** per deployment (ADR 0002): registration is
+  rate-limited by IP, WARP free is unmetered — register once, serve everyone
+  (`docs/adr/0002.md`).
+- **Register / Rotate / Import** (import accepts a WireGuard `.conf` or a
+  warp-reg-style registration JSON, soft-verified against Cloudflare when
+  credentials are present) — so a rate-limited or pre-existing account is
+  never a blocker.
+- **Endpoint editor + AmneziaWG settings** (Jc/Jmin/Jmax/S1–S4/H1–H4/I1–I5)
+  stored in KV, applied where the format can express them.
+- **One subscription URL per client** — see the formats table. All sub
+  routes are edge-cached (6 h) and protected by an unguessable path token
+  (ADR 0006): wrong tokens get a 404, never a 401.
+- **Generator tab** — the legacy 7-format generator, now rendering from the
+  stored account instead of registering per request. Zero network calls at
+  generation time.
+- **Zero runtime dependencies** — the worker bundle is plain JS (plus
+  `tweetnacl`/`qrcode` for keys and QR). No npm install for the worker.
 
-Build the image locally (no pre-built registry image is published):
+## Quick start
 
-```bash
-docker build -t warp-generator .
-docker run -d --name warp-generator \
-  -p 3000:3000 \
-  --restart unless-stopped \
-  warp-generator
-```
-
-Open http://localhost:3000.
-
-### Docker — build locally
-
-```bash
-docker build -t warp-generator-public .
-docker run -d -p 3000:3000 --name warp-generator warp-generator-public
-```
-
-### docker-compose
-
-```yaml
-services:
-  warp-generator:
-    build: .
-    container_name: warp-generator
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
-```
-
-### Vercel
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/QMahyar/warp-generator&repository-name=warp)
-- Or via [CLI](https://vercel.com/docs/cli): `vercel deploy`
-- Local dev: `vercel dev`
-
-### Netlify
-
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/QMahyar/warp-generator&siteName=warp)
-- Or via [CLI](https://docs.netlify.com/cli/get-started/): `netlify deploy`
-- Local dev: `netlify dev`
-
-### Cloudflare Workers
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/QMahyar/warp-generator)
-- Or via [Wrangler](https://developers.cloudflare.com/workers/wrangler/): `wrangler deploy`
-- Local dev: `wrangler dev`
-
-### Cloudflare Pages
-
-The same `wrangler.jsonc` deploys to Pages with the static export.
+The operator must be logged in to Cloudflare (`wrangler login`) and run the
+interactive wizard — it creates the secrets, the KV namespaces, patches
+`wrangler.jsonc`, deploys, and smoke-tests the result:
 
 ```bash
-CLOUDFLARE_WORKERS=1 npm run build
-npx wrangler pages deploy out --project-name=warp-generator
+wrangler login          # once
+./scripts/deploy-warp-panel.sh
 ```
 
-Or connect the repo in the Cloudflare dashboard:
-- Build command: `CLOUDFLARE_WORKERS=1 npm run build`
-- Output directory: `out`
+Walkthrough and troubleshooting: [docs/ops/deploy.md](docs/ops/deploy.md).
 
-## 🛠️ Local Development
+### Manual deploy
 
 ```bash
-npm install
-npm run dev          # dev server on :3000
-npm run build        # production build
-npm run start        # serve production build
-npm run lint
+wrangler secret put PASSWORD   # panel login (min 12 chars)
+wrangler secret put SUB_PATH   # long random token — the subscription credential
+wrangler kv namespace create ACCOUNT      # then bind the ids in wrangler.jsonc
+wrangler kv namespace create ENDPOINTS
+wrangler kv namespace create AWG
+wrangler deploy
 ```
 
-## ⚙️ Generator Options and API
+`wrangler.jsonc` ships with every binding commented out — the wizard or the
+manual steps above uncomment and fill them. Local development:
+`wrangler dev --var PASSWORD:change-me --var SUB_PATH:dev-token`.
 
-The generator exposes the same options in the UI and in `POST /api/generate`:
+## Configuration
 
-| Option | Behavior and constraints |
-|--------|--------------------------|
-| DNS | Providers come from `config/dns.ts`. Community providers are marked with `•`; selecting one forces **All sites** and clears selected services because they do not support split tunneling. An unknown provider ID falls back to Cloudflare DNS. |
-| IPv6 | Enabled by default. Disabling it removes IPv6 from the interface address, DNS list, and the default all-sites `AllowedIPs`. |
-| Exclude LAN | Available only in **All sites** mode. It replaces the default routes with public address ranges so private/reserved LAN ranges stay outside the tunnel. |
-| PersistentKeepalive | Disabled by default. Enabling it with an empty UI field uses `25`; the API accepts integers from `1` through `65535` and omits invalid values. It is emitted by WireGuard and WireSock configs. |
-| Custom I1 | A non-empty value is trimmed and must be at most 253 characters with no whitespace. AmneziaWG WireGuard uses it to generate a QUIC `I1` mask; WireSock uses it as `Id`. Empty or invalid input silently falls back to a bundled random mask/domain. |
+| Setting | Where | Meaning |
+|---|---|---|
+| `PASSWORD` | secret | Session-cookie signing / login secret for the panel gate |
+| `SUB_PATH` | secret | The subscription path token — **it IS the credential** (ADR 0006) |
+| `ACCOUNT` | KV | The WARP account record — `privateKey`, `clientId`, `token`, `peerPublicKey`, `v4`, `v6`, `reserved`, `source`, `verified`, `verifiedAt`, `registeredAt` — written **only** by Register/Rotate/Import |
+| `ENDPOINTS` | KV | Panel settings: the endpoint list (key `endpoints`, one `host:port` per line, v4/v6, any port) |
+| `AWG` | KV | Panel settings: AmneziaWG toggle + params (key `awg`) |
 
-Example request against a local deployment:
+## Routes
+
+### Panel (password-gated)
+
+| Route | Purpose |
+|---|---|
+| `POST /api/auth/login` / `logout` | session setup / teardown |
+| `GET /api/account` | current account summary (never keys/token) |
+| `POST /api/account/register` | register a fresh WARP account (10 s timeout, okhttp UA) |
+| `POST /api/account/rotate` | replace the account with a fresh registration |
+| `POST /api/account/import` | store an existing account — conf or registration JSON, soft verification |
+| `GET /api/settings` | endpoints + AWG settings |
+| `POST /api/settings/endpoints` / `awg` | persist settings |
+| `POST /api/generator` | generate any of the 7 config formats from the stored account |
+
+### Subscriptions (path-token, no session, cached 6 h)
+
+| URL | Format | Notes |
+|---|---|---|
+| `/api/<SUB_PATH>/sub` | wireguard:// links, base64 blob | `?scheme=wg` = Throne-style wg:// links |
+| `/api/<SUB_PATH>/sub/clash` | mihomo YAML | one `type: wireguard` proxy per endpoint, `amnezia-wg-option` when AWG is on |
+| `/api/<SUB_PATH>/sub/singbox` | sing-box `config.json` | runnable profile (SFA/SFI); `?legacy=1` = pre-1.13 outbound shape (NekoBox/Husi) |
+| `/api/<SUB_PATH>/sub/neko` | `nekoray://custom#` links, base64 blob | CustomBean wrapping the sing-box wireguard outbound |
+| `/api/<SUB_PATH>/sub/wg` | ZIP of `.conf` files | plain WireGuard, or AmneziaWG confs when AWG is on — official app import |
+| `/api/<SUB_PATH>/sub/awg` | `awg://` links, base64 blob | always AWG params inside |
+
+Missing account on a sub route → 503. Wrong token → 404. Endpoint list
+empty/invalid on a sub route → the two fallback endpoints
+(`162.159.192.1:2408`, `engage.cloudflareclient.com:2408`).
+
+## Formats
+
+WireGuard (`wireguard://` **and** Throne `wg://`), Clash, sing-box, NekoBox,
+WireGuard ZIP, and AmneziaWG `awg://` — researched and pinned to each
+client's parsing requirements in
+[docs/research/sub-formats.md](docs/research/sub-formats.md). Endpoint
+semantics are uniform: one config per valid endpoint line, malformed lines
+skipped, full tunnel, DNS 1.1.1.1, MTU 1280.
+
+## Security model
+
+- Panel: HMAC-signed session cookie, constant-time compares, wrong password
+  never reveals the store layout.
+- Subscriptions: the path is the credential — unguessable `SUB_PATH`,
+  wrong/missing token → 404 (ADR 0006). No session, no server-side logging
+  of tokens.
+- KV records: `publicAccount` never exposes keys or tokens; `acceptedSecret`
+  checks in tests; worker routes fail fast when a KV binding is missing.
+
+## Development
 
 ```bash
-curl -X POST http://localhost:3000/api/generate \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "selectedServices": [],
-    "siteMode": "all",
-    "deviceType": "awg15",
-    "endpoint": "engage.cloudflareclient.com:4500",
-    "configFormat": "wireguard",
-    "dnsId": "cf",
-    "ipv6": false,
-    "excludeLan": true,
-    "persistentKeepalive": 25,
-    "customI1Domain": "google.com"
-  }'
+node --test            # 218 tests — node:test, zero dependencies
+node --check worker/*.js   # syntax gate
+node scripts/build-ip-ranges.mjs   # regenerates IP_RANGES in worker/generate.js
 ```
 
-A successful response has `success: true` and a `content` object containing
-`configBase64`, `qrCodeBase64`, `configFormat`, and `fileName`. `configBase64`
-contains the Base64-encoded configuration; `qrCodeBase64` is an image data URL.
+The worker is the production target (ADR 0003). Everything in `worker/`
+is plain ES modules with no build step; the Next.js app, `lib/`, `app/`,
+`components/`, `config/`, `functions/` remain in the repo only as history.
 
-## ➕ Adding a new service (PR welcome)
+## 🗂 Legacy
 
-The "specific sites" mode lets users select services to route through WARP.
-To add one:
+- The Next.js generator UI and `functions/` (Netlify) are **unmaintained**
+  — the panel replaces them (ADR 0004). `README_ru.md` / `README_fa.md`
+  describe that retired product.
+- The old public `POST /api/generate` route is gone from the worker; the
+  Next.js dev server still has its own route handler (only relevant when
+  running the legacy app).
+- The GitHub Actions workflows shipping Docker/Vercel/Netlify and the
+  IP_RANGES rebuild still exist; the rebuild now targets
+  `worker/generate.js`.
 
-1. **Fork** the repo and create a branch (e.g. `feat/service-newsite`).
-2. **Create** `config/services/<your-service-key>.json`:
-   ```json
-   {
-     "name": "Display Name",
-     "icon": "FaIconName",
-     "iconLibrary": "fa",
-     "type": "new",
-     "ips": "1.2.3.0/24, 5.6.7.0/24, ..."
-   }
-   ```
-   - `name` — user-visible service name.
-   - `icon` — icon name from [react-icons](https://react-icons.github.io/react-icons/). Verify the name exists in the chosen library.
-   - `iconLibrary` — one of: `fa`, `fa6`, `si`, `bi`, `md`, `ri`, etc. (matches react-icons sub-package).
-   - `type` — optional. Set `"new"` to show a "NEW" badge.
-   - `ips` — comma-separated CIDR ranges. Use a real ASN/IP lookup tool — Cloudflare's whois, BGP.tools, or `whois -h whois.cymru.com " -v <ip>"`.
-3. **Do NOT edit** `worker/api-handler.js` or `functions/api/generate.js`. A GitHub Action (`build-ip-ranges`) rebuilds the `IP_RANGES` blocks in both files automatically on merge to `master`, and syncs the new service into the `production` branch.
-4. **Open a PR** to `master`.
-
-### Local preview of the rebuild
-
-```bash
-node scripts/build-ip-ranges.mjs
-```
-
-Runs against `config/services/*.json` and rewrites the `// IP_RANGES:BEGIN ... // IP_RANGES:END` block in both worker/functions files. Safe to run repeatedly — idempotent.
-
-### Adding a DNS provider
-
-1. Add the provider to `DNS_PROVIDERS` in `config/dns.ts` with a unique `id`,
-   display `label`, IPv4/IPv6 arrays, and `isCommunity`.
-2. Set `isCommunity: true` if the provider cannot be used with specific-site
-   routing. Both the UI and API enforce the all-sites restriction.
-3. Mirror the entry in the embedded `DNS_PROVIDERS` arrays in
-   `worker/api-handler.js` and `functions/api/generate.js`. Unlike IP ranges
-   and I1 masks, DNS providers do not currently have an automatic sync script.
-4. Run `npm run build` before opening the PR.
-
-Docker and Vercel use `config/dns.ts` directly, while Cloudflare Workers and
-Netlify execute the embedded handlers. Keeping all three provider lists in sync
-prevents a provider shown by the static UI from falling back to Cloudflare DNS
-at generation time.
-
-### Maintaining default I1 masks
-
-`lib/builders/shared.ts` is the source of truth for masks used when no custom
-I1 domain is supplied:
-
-1. Edit only the `I1_MASKS` array between the `// I1_MASKS:BEGIN` and
-   `// I1_MASKS:END` markers.
-2. Run `node scripts/build-i1-masks.mjs`.
-3. Commit the generated changes to `worker/api-handler.js` and
-   `functions/api/generate.js` with the source change.
-
-The script validates the markers and mask format, updates both embedded
-handlers, and is idempotent. The `build-i1-masks` workflow also runs when its
-source, script, or workflow changes on `master` and rebuilds the production
-handlers. Do not hand-edit generated I1 blocks.
-
-## 📁 Project Structure
+## Project layout (worker/)
 
 ```
-├── app/
-│   ├── layout.tsx                 Root layout (Geist font, meta)
-│   ├── page.tsx                   Server component — loads services
-│   ├── not-found.tsx              404 page
-│   └── api/generate/route.ts      POST endpoint (config generation)
-│
-├── components/
-│   ├── home-client.tsx            Client shell (tabs, state)
-│   ├── layout/
-│   │   ├── topbar.tsx             Logo + tab navigation
-│   │   ├── sidebar.tsx            GitHub link + server list (sticky)
-│   │   └── footer.tsx
-│   ├── generator/
-│   │   ├── config-selectors.tsx   Custom dropdowns (format, device, etc.)
-│   │   ├── advanced-settings.tsx  IPv6, keepalive, and custom I1 controls
-│   │   ├── service-picker.tsx     Service selection grid
-│   │   ├── result-panel.tsx       Download / copy / QR result block
-│   │   ├── formats-tab.tsx        Supported formats list
-│   │   └── about-tab.tsx          About + compatible clients
-│   └── icons/                     Icon resolver + flag icons
-│
-├── config/
-│   ├── services/                  JSON files — one per service (IP ranges)
-│   ├── services-loader.ts         Auto-loads all JSONs at startup
-│   ├── dns.ts                     DNS providers and split-tunnel constraints
-│   ├── endpoints.ts               Cloudflare WARP endpoints
-│   └── formats.ts                 Config format definitions
-│
-├── lib/
-│   ├── builders/                  One file per config format
-│   │   ├── wireguard.ts
-│   │   ├── throne.ts
-│   │   ├── clash.ts
-│   │   ├── nekoray.ts
-│   │   ├── husi.ts
-│   │   ├── karing.ts
-│   │   ├── wiresock.ts
-│   │   ├── shared.ts              Device profiles and default I1 masks
-│   │   └── index.ts               Dispatcher — buildConfig(format, params)
-│   ├── warp-service.ts            Orchestrator (keys → CF → build → QR)
-│   ├── quic.ts                    Custom QUIC I1 mask generation
-│   ├── cloudflare-client.ts       Cloudflare WARP API registration
-│   ├── crypto.ts                  Key generation (tweetnacl)
-│   ├── qr-generator.ts            QR via external API + SVG fallback
-│   └── ip-ranges.ts               Re-exports from services-loader
-│
-├── hooks/
-│   ├── use-generator.ts           Client-side generation logic
-│   └── use-mobile.ts              Responsive breakpoint hook
-│
-├── scripts/
-│   ├── build-ip-ranges.mjs        Regenerates IP_RANGES in worker + functions
-│   └── build-i1-masks.mjs         Regenerates I1_MASKS in worker + functions
-│
-├── worker/                        Cloudflare Workers runtime
-├── functions/                     Netlify Functions runtime
-├── types/                         TypeScript type definitions
-├── styles/globals.css             Design tokens + dark theme
-├── .github/workflows/             CI: Docker, IP_RANGES, I1_MASKS rebuilds
-├── Dockerfile                     Standalone production build (public)
-├── next.config.mjs
-└── package.json
+worker/
+├── index.js       router: auth gate → panel routes → sub routes (no session)
+├── auth.js        HMAC session cookie (constant-time compare)
+├── account.js     account record + KV helpers (register/rotate/import writers)
+├── import.js      conf + registration-JSON parsers, soft verification
+├── settings.js    endpoints + AmneziaWG params in KV (with I1 masks)
+├── generate.js    the generator engine: 7 format builders + IP_RANGES + QR
+├── sub.js         subscription seam: renderSubscription + renderers registry
+├── zip.js         storeless ZIP writer (no dependencies)
+└── *test.js       218 tests, node:test
 ```
-
-## 🔧 Configuration
-
-No environment variables required for the public build. The generator runs anonymously
-against the public Cloudflare WARP registration API.
-
-### Build modes
-
-`next.config.mjs` switches `output` based on environment:
-
-| Env var                       | Output           | Used by                  |
-|-------------------------------|------------------|--------------------------|
-| `DOCKER_BUILD=1`              | `standalone`     | Docker / Dokploy         |
-| `CLOUDFLARE_WORKERS` / `CF_PAGES` | `export`     | CF Workers / CF Pages    |
-| _none_                        | default          | Vercel / Netlify         |
-
-## 🌐 Supported Platforms
-
-| Platform              | Support  | Notes                                    |
-|-----------------------|----------|------------------------------------------|
-| Docker (self-host)    | ✅ Full  | standalone Next.js server                |
-| Vercel                | ✅ Full  | default runtime                          |
-| Netlify               | ✅ Full  | Edge functions                           |
-| Cloudflare Workers    | ✅ Full  | static export + worker                   |
-| Cloudflare Pages      | ✅ Full  | static export                            |
 
 ## 📄 License
 
-MIT License — see [LICENCE](LICENCE)
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Open a Pull Request
+MIT — see [LICENCE](LICENCE)

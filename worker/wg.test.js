@@ -357,22 +357,19 @@ test('awg:// link with AWG on: decoded conf carries the stored params incl. the 
   assert.ok(conf.endsWith('Endpoint = engage.cloudflareclient.com:51820'));
 });
 
-test('awg:// link with AWG off/absent: legacy defaults — Jc/Jmin/Jmax/S1/S2/H1–H4, no I lines', () => {
+test('awg:// link with AWG off/absent: plain WireGuard conf — toggle governs obfuscation (review fix)', () => {
   for (const awg of [null, undefined, { enabled: false }]) {
     const link = buildAwgLink(ACCOUNT_A, ENDPOINTS[0], awg);
     const conf = decodeUrlSafeBase64(link.slice('awg://'.length).split('#')[0]);
-    // The exact legacy buildWireguard set (settings.js DEFAULT_AWG):
-    // Jc 4, Jmin 40, Jmax 70, S1 0, S2 0, H1–H4 1–4; S3/S4/I1–I5 unset →
-    // omitted. Same lines the legacy generator hardcoded into every conf.
-    const block = [
-      'Jc = 4', 'Jmin = 40', 'Jmax = 70', 'S1 = 0', 'S2 = 0',
-      'H1 = 1', 'H2 = 2', 'H3 = 3', 'H4 = 4',
-    ];
-    for (const line of block) assert.ok(conf.includes(line), `missing ${line}`);
-    assert.ok(!conf.includes('S3 ='));
-    assert.ok(!conf.includes('S4 ='));
+    // The off-state is byte-identical to the wg-zip plain conf: no J/S/H/I
+    // obfuscation lines at all (spec: the AWG toggle controls which formats
+    // carry obfuscation — awg:// goes plain like clash and wg-zip).
+    assert.equal(conf, buildWgConf(ACCOUNT_A, ENDPOINTS[0], null));
+    assert.ok(!conf.includes('Jc ='));
+    assert.ok(!conf.includes('Jmin ='));
+    assert.ok(!conf.includes('S1 ='));
+    assert.ok(!conf.includes('H4 ='));
     assert.ok(!conf.includes('I1 ='));
-    assert.ok(!conf.includes('I2 ='));
   }
 });
 

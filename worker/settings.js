@@ -296,6 +296,8 @@ export function assertAwgBinding(binding) {
  */
 export async function writeAwg(binding, awg) {
   if (!awg || awg.enabled !== true) {
+    // Disable/absent is a safe no-op without a binding — AWG off == AWG
+    // unset (same state: key absent). Only ENABLING must fail fast.
     if (binding) await binding.delete(AWG_KV_KEY);
     return null;
   }

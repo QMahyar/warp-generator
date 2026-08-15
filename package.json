@@ -3,6 +3,7 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
+    "test": "node --test",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",

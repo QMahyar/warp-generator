@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * Auto-generate IP_RANGES blocks in worker/api-handler.js and functions/api/generate.js
- * from config/services/*.json.
+ * Auto-generate the IP_RANGES block in worker/generate.js from
+ * config/services/*.json (the worker's single generator engine; the
+ * Netlify/functions runtime and the old worker/api-handler.js were
+ * retired with the subscription-panel pivot — see docs/adr/0001.md).
  *
  * Each JSON: { name, icon, iconLibrary, type?, ips }  — only `ips` is used here.
  *
@@ -21,8 +23,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SERVICES_DIR = join(ROOT, 'config', 'services');
 
 const TARGETS = [
-  join(ROOT, 'worker', 'api-handler.js'),
-  join(ROOT, 'functions', 'api', 'generate.js'),
+  join(ROOT, 'worker', 'generate.js'),
 ];
 
 const BEGIN = '// IP_RANGES:BEGIN';
