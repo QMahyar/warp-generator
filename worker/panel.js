@@ -103,15 +103,49 @@ function page(title, body) {
     width: min(92vw, 720px);
     padding: 36px 0;
   }
-  .placeholder {
-    padding: 48px 32px;
-    text-align: center;
+  [hidden] { display: none !important; }
+  .card-panel {
     background: var(--panel);
-    border: 1px dashed var(--border);
+    border: 1px solid var(--border);
     border-radius: 12px;
-    color: var(--muted);
+    padding: 20px 24px;
   }
-  .placeholder strong { display: block; color: var(--text); margin-bottom: 6px; font-size: 16px; }
+  .card-panel + .card-panel { margin-top: 20px; }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .card-head h2 { margin: 0; font-size: 16px; color: #e8eefc; }
+  .badge {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .badge.ok {
+    color: #9ece6a;
+    border-color: rgba(158, 206, 106, 0.4);
+    background: rgba(158, 206, 106, 0.08);
+  }
+  .badge.err {
+    color: var(--danger);
+    border-color: rgba(247, 118, 142, 0.4);
+    background: rgba(247, 118, 142, 0.08);
+  }
+  .card-panel .meta { margin: 10px 0 0; color: var(--muted); font-size: 13px; }
+  .actions { display: flex; gap: 10px; margin-top: 18px; }
+  .actions button { width: auto; margin: 0; flex: 1; }
+  .actions button:disabled { opacity: 0.55; cursor: wait; }
+  .actions #account-rotate-button {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .actions #account-rotate-button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
 </style>
 </head>
 <body>
@@ -141,14 +175,19 @@ export function loginPage({ error = null } = {}) {
 `);
 }
 
-/** Authenticated empty shell — account, endpoints, subscriptions and the
- * generator land in later tickets. */
+/**
+ * Authenticated shell with the account card (ticket 02). The card fetches
+ * /api/account on load, and Register/Rotate POST to /api/account/register|
+ * rotate; the inline script owns the in-flight state (network ~1-2 s) and
+ * error rendering. Framework-less per ADR 0004 — dynamic values are injected
+ * via textContent, never innerHTML.
+ */
 export function panelShell() {
   return page('WARP Panel', `
 <header>
   <span class="brand">WARP Panel</span>
   <nav>
-    <span>Account</span>
+    <span class="active">Account</span>
     <span>Endpoints</span>
     <span>Subscriptions</span>
     <span>Generator</span>
@@ -158,10 +197,84 @@ export function panelShell() {
   </form>
 </header>
 <main>
-  <div class="placeholder">
-    <strong>Panel shell ready</strong>
-    Registration, endpoints, subscriptions and the generator land in later tickets.
-  </div>
+  <section class="card-panel" id="account-card">
+    <div class="card-head">
+      <h2>WARP account</h2>
+      <span id="account-status" class="badge">…</span>
+    </div>
+    <p id="account-meta" class="meta">Loading account state…</p>
+    <div class="actions">
+      <button type="button" id="account-register-button">Register account</button>
+      <button type="button" id="account-rotate-button">Rotate account</button>
+    </div>
+    <div id="account-error" class="error" hidden></div>
+  </section>
 </main>
+<script>
+(() => {
+  const statusEl = document.getElementById('account-status');
+  const metaEl = document.getElementById('account-meta');
+  const errorEl = document.getElementById('account-error');
+  const registerBtn = document.getElementById('account-register-button');
+  const rotateBtn = document.getElementById('account-rotate-button');
+  const buttons = [registerBtn, rotateBtn];
+  const LABELS = { register: ['Register account', 'Registering…'], rotate: ['Rotate account', 'Rotating…'] };
+
+  function fmt(dateStr) {
+    const d = new Date(dateStr);
+    return Number.isNaN(d.getTime()) ? dateStr : d.toLocaleString();
+  }
+
+  function render(account) {
+    if (!account) {
+      statusEl.textContent = 'No account';
+      statusEl.className = 'badge';
+      metaEl.textContent = 'No WARP account yet. Register one — subscriptions need it.';
+    } else {
+      statusEl.textContent = 'Registered';
+      statusEl.className = 'badge ok';
+      metaEl.textContent = 'Registered ' + fmt(account.registeredAt) + ' · ' + (account.v4 || '—');
+    }
+    errorEl.hidden = true;
+  }
+
+  function setBusy(busy, active) {
+    buttons.forEach(function (b) { b.disabled = busy; });
+    if (active) active.textContent = busy ? LABELS[active.id === 'account-register-button' ? 'register' : 'rotate'][1]
+                                         : LABELS[active.id === 'account-register-button' ? 'register' : 'rotate'][0];
+  }
+
+  async function run(action) {
+    const active = action === 'register' ? registerBtn : rotateBtn;
+    errorEl.hidden = true;
+    metaEl.textContent = 'Contacting Cloudflare — this takes a couple of seconds…';
+    setBusy(true, active);
+    try {
+      const res = await fetch('/api/account/' + action, { method: 'POST' });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
+      render(data.account);
+    } catch (err) {
+      errorEl.textContent = err.message || 'Unknown error';
+      errorEl.hidden = false;
+      metaEl.textContent = 'Action failed — the stored account was not changed.';
+    } finally {
+      setBusy(false, active);
+    }
+  }
+
+  registerBtn.addEventListener('click', function () { run('register'); });
+  rotateBtn.addEventListener('click', function () { run('rotate'); });
+
+  fetch('/api/account')
+    .then(function (r) { return r.json(); })
+    .then(function (data) { render(data.account); })
+    .catch(function () {
+      statusEl.textContent = 'Unavailable';
+      statusEl.className = 'badge err';
+      metaEl.textContent = 'Could not load account state — is the panel configured?';
+    });
+})();
+</script>
 `);
 }

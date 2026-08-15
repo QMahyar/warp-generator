@@ -1,21 +1,34 @@
 /**
  * Cloudflare Worker entry point.
- * Route map (ticket 01):
+ * Route map (ticket 01 + ticket 02):
  *   - /api/generate (+ OPTIONS, GET, 405) — legacy public generator API, unchanged.
  *   - POST /api/auth/login    — password check (constant-time) → HMAC-signed
  *                               session cookie, 303 → /
  *   - POST /api/auth/logout   — clears the session cookie, 303 → /
+ *   - GET  /api/account       — account card state (null when none stored)
+ *   - POST /api/account/register — register a WARP account, store in ACCOUNT KV
+ *   - POST /api/account/rotate   — fresh registration replacing the stored one
  *   - everything else         — password-gated: unauthenticated requests get
  *                               the login page (HTML) or 401 (any /api/*);
  *                               authenticated requests get the panel shell at
  *                               "/" and gated static assets (ASSETS binding)
  *                               elsewhere.
+ * Register and Rotate are the ONLY writers of the ACCOUNT binding; the KV
+ * write happens strictly after the Cloudflare calls succeed (see account.js).
  * PASSWORD comes from the environment (env.PASSWORD). Set it with
  * `wrangler secret put PASSWORD` (see wrangler.jsonc for the local-dev
  * placeholder).
  */
 
 import { onRequestPost, onRequestOptions, onRequestGet } from './api-handler.js';
+import {
+  assertAccountBinding,
+  describeAccountError,
+  publicAccount,
+  readAccount,
+  registerAccount,
+  writeAccount,
+} from './account.js';
 import {
   clearSessionCookie,
   issueSession,
@@ -44,6 +57,34 @@ function unauthorized() {
     status: 401,
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
+}
+
+/** GET /api/account — what the account card renders (never the keys). */
+async function handleGetAccount(request, env) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const record = await readAccount(env.ACCOUNT);
+  return json({ success: true, account: record ? publicAccount(record) : null });
+}
+
+/** POST /api/account/register|rotate — network first, KV write last. */
+async function handleAccountAction(request, env, action) {
+  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  try {
+    assertAccountBinding(env.ACCOUNT); // fail fast — never burn a registration without a store
+    const record = await registerAccount();
+    await writeAccount(env.ACCOUNT, record); // only reached when CF calls succeeded
+    return json({ success: true, action, account: publicAccount(record) });
+  } catch (err) {
+    const status = Number.isInteger(err && err.status) ? err.status : 500;
+    return json({ success: false, message: describeAccountError(err) }, status);
+  }
 }
 
 /** Login form posts urlencoded by default; JSON is accepted for API callers. */
@@ -115,6 +156,11 @@ export default {
       if (url.pathname.startsWith('/api/')) return unauthorized();
       return html(loginPage({ error: url.searchParams.get('error') }));
     }
+
+    // Account API (ticket 02) — only reachable with a valid session.
+    if (url.pathname === '/api/account') return handleGetAccount(request, env);
+    if (url.pathname === '/api/account/register') return handleAccountAction(request, env, 'register');
+    if (url.pathname === '/api/account/rotate') return handleAccountAction(request, env, 'rotate');
 
     // Authenticated: panel shell at the root, gated static assets elsewhere.
     if (url.pathname === '/') return html(panelShell());

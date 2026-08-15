@@ -21,4 +21,13 @@
   // Local dev: uncomment and change the value below, or pass
   // `--var PASSWORD:<value>` to `wrangler dev`.
   // "vars": { "PASSWORD": "local-dev-change-me" }
+
+  // ACCOUNT — KV binding holding the WARP account record (ticket 02),
+  // written only by the panel's Register/Rotate actions.
+  // Production: `wrangler kv namespace create ACCOUNT`, then bind its id:
+  // "kv_namespaces": [
+  //   { "binding": "ACCOUNT", "id": "<namespace-id>" }
+  // ],
+  // Local dev: same binding shape with a local namespace id, or use
+  // `--kv ACCOUNT:<namespace-id>` with `wrangler dev`.
 }
