@@ -8,6 +8,11 @@
  * route handlers read KV and pass plain data in. Later tickets add more
  * renderers to the RENDERERS registry (singbox, neko, wg-zip, awg).
  *
+ * Ticket 06 shipped the `singbox` format — a full minimal sing-box
+ * `config.json` for SFA/SFI remote profiles: the 1.13+ WireGuard
+ * ENDPOINT shape by default, the pre-1.13 wireguard OUTBOUND shape under
+ * `?legacy=1` (NekoBox Android / Husi). See renderSingbox.
+ *
  * Ticket 04 shipped the `sub` format — the wireguard:// link family:
  *
  *   opts.scheme = 'wireguard' (default)  — one v2rayN-family `wireguard://`
@@ -266,6 +271,151 @@ export function renderClash(opts, { account, endpoints, awg } = {}) {
   return { body, contentType: 'text/plain; charset=utf-8' };
 }
 
+// ---- singbox (SFA/SFI remote profile — sub-formats.md §2.3) ----
+
+/**
+ * The client addresses as a CIDR array — v4/32 plus v6/128 when the
+ * account record has v6. Used as the endpoint `address` and the legacy
+ * outbound `local_address`.
+ */
+function clientAddressCidrs(account) {
+  const addresses = [`${account.v4}/32`];
+  if (account.v6) addresses.push(`${account.v6}/128`);
+  return addresses;
+}
+
+/**
+ * One `endpoints` entry per endpoint — the sing-box 1.13+ WireGuard
+ * endpoint shape (research §2.3 second block; verified against
+ * sing-box.sagernet.org/configuration/endpoint/wireguard/ and the option
+ * source): type wireguard, tag `warp-<host>:<port>` (the same naming
+ * convention as the clash proxies; IPv6 hosts re-bracketed in the tag
+ * only — the peer `address` is the bare host), `mtu` 1280, `address` =
+ * the account client CIDRs, `private_key`, and exactly one peer carrying
+ * the server address/port, the peer public key, full-tunnel
+ * `allowed_ips` ["0.0.0.0/0", "::/0"] and the reserved bytes. `system`
+ * stays at its default (false — userspace) so the profile needs no
+ * privileges on any platform.
+ */
+export function buildSingboxEndpoint(account, ep) {
+  return {
+    type: 'wireguard',
+    tag: proxyNameOf(ep),
+    mtu: SUB_MTU,
+    address: clientAddressCidrs(account),
+    private_key: account.privateKey,
+    peers: [
+      {
+        address: ep.host,
+        port: ep.port,
+        public_key: account.peerPublicKey,
+        allowed_ips: ['0.0.0.0/0', '::/0'],
+        reserved: reservedToBytes(account.reserved),
+      },
+    ],
+  };
+}
+
+/**
+ * The pre-1.13 wireguard OUTBOUND shape (research §2.3 first block), used
+ * under `?legacy=1` — NekoBox Android and Husi parse the `outbounds`
+ * list of a sing-box JSON and need the classic fields
+ * (server/server_port/local_address/private_key/peer_public_key/
+ * reserved/mtu). Same tag convention, account values and MTU as the
+ * endpoint entry — only the shape differs.
+ */
+export function buildLegacyWireguardOutbound(account, ep) {
+  return {
+    type: 'wireguard',
+    tag: proxyNameOf(ep),
+    server: ep.host,
+    server_port: ep.port,
+    local_address: clientAddressCidrs(account),
+    private_key: account.privateKey,
+    peer_public_key: account.peerPublicKey,
+    reserved: reservedToBytes(account.reserved),
+    mtu: SUB_MTU,
+  };
+}
+
+/** One select group over the endpoint tags; default = the first. */
+function buildSelector(tags) {
+  return { type: 'selector', tag: 'select', outbounds: tags, default: tags[0] };
+}
+
+/**
+ * The minimal runnable-profile skeleton shared by both payloads:
+ *   log      — info + timestamps (the standard for GUI clients).
+ *   dns      — 1.1.1.1, tagged, as the `final` resolver. The server entry
+ *              uses the era-correct schema: the typed form
+ *              (`type: "udp"`, canonical since 1.12) for the 1.13+
+ *              payload — the legacy `address` form was REMOVED in
+ *              sing-box 1.14 — and the legacy `address` form (still
+ *              accepted up to 1.13) for the legacy payload.
+ *   inbounds — one `mixed` inbound on 0.0.0.0:2080: SOCKS+HTTP on one
+ *              port, no privileges and no per-platform tuning. (A `tun`
+ *              inbound needs VPN permission + platform-specific
+ *              auto_route/stack options, so it is the operator's choice
+ *              to layer on top, not part of the minimal skeleton.)
+ *   outbounds— one `selector` over the endpoint tags, default = the
+ *              first endpoint. Selectors resolve endpoint tags through
+ *              the outbound manager (endpoints and outbounds share one
+ *              tag namespace — adapter/outbound/manager.go falls back to
+ *              the endpoint manager), and SFA/SFI render a dashboard
+ *              group for selector outbounds (clients/general docs), so
+ *              subscribers can switch endpoints without re-importing.
+ *   route    — `final` = the selector: full tunnel through the chosen
+ *              endpoint.
+ */
+function buildSingboxSkeleton(tags, legacy) {
+  return {
+    log: { level: 'info', timestamp: true },
+    dns: {
+      servers: legacy
+        ? [{ tag: 'cloudflare-dns', address: '1.1.1.1' }]
+        : [{ type: 'udp', tag: 'cloudflare-dns', server: '1.1.1.1' }],
+      final: 'cloudflare-dns',
+    },
+    inbounds: [{ type: 'mixed', tag: 'mixed-in', listen: '0.0.0.0', listen_port: 2080 }],
+    outbounds: [buildSelector(tags)],
+    route: { final: 'select' },
+  };
+}
+
+/**
+ * The sing-box renderer: a full minimal `config.json` (raw JSON, never
+ * base64) for SFA/SFI remote profiles (research §2.3 + §3; the client
+ * docs require the profile to be a single remote sing-box config.json).
+ * Default payload: the 1.13+ WireGuard ENDPOINT shape — one `endpoints`
+ * entry per valid endpoint plus the skeleton above. `?legacy=1`: the
+ * same skeleton with the pre-1.13 wireguard OUTBOUND shape as the
+ * `outbounds` entries (NekoBox Android / Husi — the research notes both
+ * parse the outbound list of a sing-box JSON). Endpoint semantics are
+ * identical to the other renderers (resolveEndpoints — malformed
+ * skipped, zero valid → the fallback pair). `awg` is accepted for seam
+ * uniformity but ignored: sing-box cannot express AmneziaWG (same as
+ * the `sub` link formats).
+ */
+export function renderSingbox(opts, { account, endpoints } = {}) {
+  if (!account || typeof account.privateKey !== 'string' || !account.privateKey) {
+    throw new SubscriptionError('No WARP account stored — register one in the panel first.');
+  }
+  const legacy = !!(opts && opts.legacy === '1');
+  const eps = resolveEndpoints(endpoints);
+  const tags = eps.map((ep) => proxyNameOf(ep));
+  const config = buildSingboxSkeleton(tags, legacy);
+  if (legacy) {
+    config.outbounds = [
+      ...eps.map((ep) => buildLegacyWireguardOutbound(account, ep)),
+      ...config.outbounds,
+    ];
+  } else {
+    config.endpoints = eps.map((ep) => buildSingboxEndpoint(account, ep));
+  }
+  const body = `${JSON.stringify(config, null, 2)}\n`;
+  return { body, contentType: 'application/json; charset=utf-8' };
+}
+
 // ---- the `sub` renderer ----
 
 /**
@@ -291,7 +441,8 @@ export function renderSub(opts, { account, endpoints } = {}) {
 const RENDERERS = {
   sub: renderSub,
   clash: renderClash,
-  // Later tickets: singbox, neko, wg (zip), awg.
+  singbox: renderSingbox,
+  // Later tickets: neko, wg (zip), awg.
 };
 
 /**

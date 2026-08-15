@@ -23,6 +23,13 @@
  *                               proxy when the stored AWG record is enabled.
  *                               Same no-session/token/404/6 h contract as
  *                               /sub; missing account → 503.
+ *   - GET  /api/<SUB_PATH>/sub/singbox — sing-box config.json (ticket 06):
+ *                               the 1.13+ WireGuard endpoint shape by
+ *                               default, the pre-1.13 outbound shape under
+ *                               ?legacy=1 (NekoBox Android / Husi). Same
+ *                               no-session/token/404/6 h contract; missing
+ *                               account → 503; AWG ignored (not
+ *                               expressible).
  *   - everything else         — password-gated: unauthenticated requests get
  *                               the login page (HTML) or 401 (any /api/*);
  *                               authenticated requests get the panel shell at
@@ -262,6 +269,26 @@ async function handleSubClash(request, env) {
   });
 }
 
+/**
+ * GET /api/<token>/sub/singbox — the sing-box config.json subscription
+ * (ticket 06). Same contract as handleSub/handleSubClash; `?legacy=1`
+ * selects the pre-1.13 wireguard outbound shape (default: the 1.13+
+ * endpoint shape). AWG is not expressible in sing-box — the KV read is
+ * skipped entirely (same decision as handleSub).
+ */
+async function handleSubSingbox(request, env, url) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const account = await readAccount(env.ACCOUNT);
+  if (!account) return missingAccount();
+  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
+  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
+  const { body, contentType } = renderSubscription('singbox', { legacy: url.searchParams.get('legacy') }, { account, endpoints, awg: null });
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
+  });
+}
+
 async function isAuthorized(request, env) {
   if (!env.PASSWORD) return false; // unconfigured: everything stays gated
   const cookies = parseCookies(request.headers.get('Cookie') || '');
@@ -288,14 +315,20 @@ export default {
     if (url.pathname === '/api/auth/login') return handleLogin(request, env);
     if (url.pathname === '/api/auth/logout') return handleLogout(request, env);
 
-    // Subscription routes (tickets 04 + 05) — BEFORE the auth gate: no
-    // session, the path token IS the credential. Wrong/missing token → 404
-    // (never 401, which would reveal the route exists). `/sub/clash` is
-    // matched before the generic `/sub` pattern (they are disjoint anyway).
+    // Subscription routes (tickets 04 + 05 + 06) — BEFORE the auth gate:
+    // no session, the path token IS the credential. Wrong/missing token →
+    // 404 (never 401, which would reveal the route exists). The sub-format
+    // routes are matched before the generic `/sub` pattern (the regexes
+    // are disjoint anyway).
     const clashMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/clash\/?$/);
     if (clashMatch) {
       if (!env.SUB_PATH || !subPathMatches(clashMatch[1], env.SUB_PATH)) return notFound();
       return handleSubClash(request, env);
+    }
+    const singboxMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/singbox\/?$/);
+    if (singboxMatch) {
+      if (!env.SUB_PATH || !subPathMatches(singboxMatch[1], env.SUB_PATH)) return notFound();
+      return handleSubSingbox(request, env, url);
     }
     const subMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/?$/);
     if (subMatch) {
