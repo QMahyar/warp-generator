@@ -205,8 +205,11 @@ test('wireguard QR strips the MTU line; throne QR carries the full wg:// link', 
   assert.ok(decodeQR(throne).startsWith('wg://'));
 });
 
-test('generateQR falls back to empty when the encoder is unavailable', async () => {
-  __setQrCodeImpl(null); // qrcode is not installed in this repo → graceful ''
+test('generateQR falls back to empty when the encoder fails', async () => {
+  // qrcode is bundled/inlined by wrangler, so the lazy import always
+  // resolves on the deployed worker; the catch-all (encoder throws) is
+  // the reachable safety net — assert it returns ''.
+  __setQrCodeImpl({ toDataURL: async () => { throw new Error('encoder exploded'); } });
   assert.equal(await generateQR('anything'), '');
   __setQrCodeImpl({ toDataURL: async (t) => fakeQR(t) }); // restore
   assert.ok((await generateQR('anything')).startsWith('data:image/png;base64,'));

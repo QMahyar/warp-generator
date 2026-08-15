@@ -125,10 +125,14 @@ import {
 import { renderSubscription } from './sub.js';
 import { loginPage, panelShell } from './panel.js';
 
-const METHOD_NOT_ALLOWED = new Response(JSON.stringify({ error: 'Method not allowed' }), {
-  status: 405,
-  headers: { 'Content-Type': 'application/json' },
-});
+// NOTE: no Response/async/crypto work at module scope — the Workers
+// runtime rejects those outside a handler (error 10021).
+function methodNotAllowed() {
+  return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+    status: 405,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
 
 function html(body, status = 200) {
   return new Response(body, {
@@ -153,14 +157,14 @@ function json(data, status = 200) {
 
 /** GET /api/account — what the account card renders (never the keys). */
 async function handleGetAccount(request, env) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'GET') return methodNotAllowed();
   const record = await readAccount(env.ACCOUNT);
   return json({ success: true, account: record ? publicAccount(record) : null });
 }
 
 /** POST /api/account/register|rotate — network first, KV write last. */
 async function handleAccountAction(request, env, action) {
-  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'POST') return methodNotAllowed();
   try {
     assertAccountBinding(env.ACCOUNT); // fail fast — never burn a registration without a store
     const record = await registerAccount();
@@ -183,7 +187,7 @@ async function handleAccountAction(request, env, action) {
  * parser's readable message.
  */
 async function handleImportAccount(request, env) {
-  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'POST') return methodNotAllowed();
   let text;
   try {
     const body = await readJsonOrFormBody(request);
@@ -230,7 +234,7 @@ async function readJsonOrFormBody(request) {
 }
 
 async function handleLogin(request, env) {
-  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'POST') return methodNotAllowed();
   if (!env.PASSWORD) {
     return new Response(null, { status: 303, headers: { Location: '/?error=config' } });
   }
@@ -248,7 +252,7 @@ async function handleLogin(request, env) {
 }
 
 async function handleLogout(request, env) {
-  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'POST') return methodNotAllowed();
   const secure = request.url.startsWith('https:');
   return new Response(null, {
     status: 303,
@@ -260,7 +264,7 @@ async function handleLogout(request, env) {
 
 /** GET /api/settings — state feed for the endpoints + AWG cards. */
 async function handleGetSettings(request, env) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'GET') return methodNotAllowed();
   const endpoints = await readEndpoints(env.ENDPOINTS);
   const awg = await readAwg(env.AWG);
   return json({ success: true, settings: { endpoints, awg } });
@@ -272,7 +276,7 @@ async function handleGetSettings(request, env) {
  * valid ones.
  */
 async function handleSaveEndpoints(request, env) {
-  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'POST') return methodNotAllowed();
   try {
     const body = await readJsonOrFormBody(request);
     if (typeof body.text !== 'string') {
@@ -290,7 +294,7 @@ async function handleSaveEndpoints(request, env) {
  * (flat, conf-named fields). Off → the AWG key is deleted (absent from KV).
  */
 async function handleSaveAwg(request, env) {
-  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'POST') return methodNotAllowed();
   try {
     const body = await readJsonOrFormBody(request);
     const { awg, invalid } = parseAwgParams(body);
@@ -333,7 +337,7 @@ function missingAccount() {
  * (clash, wg-zip, awg).
  */
 async function handleSubFormat(request, env, url, format, { needsAwg = false, opts = {} } = {}) {
-  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  if (request.method !== 'GET') return methodNotAllowed();
   const [account, stored, awg] = await Promise.all([
     readAccount(env.ACCOUNT),
     readEndpoints(env.ENDPOINTS),

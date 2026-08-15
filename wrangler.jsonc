@@ -29,6 +29,14 @@
   // Local dev: add it to the vars block above, e.g.
   //   "SUB_PATH": "local-dev-change-me"
 
+  // KV namespaces — created by the deploy wizard / manual steps; the ids
+  // are not secrets (they only identify the namespaces in this account).
+  "kv_namespaces": [
+    { "binding": "ACCOUNT", "id": "dd968069c1f64ed09b17233d31302616" },
+    { "binding": "ENDPOINTS", "id": "c052247a79a14bb589c5ecdcd38a60f1" },
+    { "binding": "AWG", "id": "7a1593d28342440b9ecbf360c3a173f2" }
+  ],
+
   // ACCOUNT — KV binding holding the WARP account record (ticket 02),
   // written only by the panel's Register/Rotate actions.
   // Production: `wrangler kv namespace create ACCOUNT`, then bind its id:
