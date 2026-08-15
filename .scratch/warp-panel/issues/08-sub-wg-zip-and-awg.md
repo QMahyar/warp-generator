@@ -9,8 +9,8 @@ conf + name) for LxBox/INCY-style clients.
 **Blocked by:** 04 — /sub — wireguard:// lines + ?scheme=wg, 03 — Panel
 settings (for the AWG toggle)
 
-**Status:** ready-for-agent
+**Status:** done — committed (`a4efb6e`), worker wg-ticket-08
 
-- [ ] Zip opens with one well-named conf per endpoint; AWG confs carry the J/S/H/I lines when enabled
-- [ ] awg:// links decode to valid confs; absent AWG toggle → endpoint still serves wg zip
-- [ ] Seam unit-tested (`node:test`); `wrangler dev` smoke
+  - [x] Zip opens with one well-named conf per endpoint; AWG confs carry the J/S/H/I lines when enabled
+  - [x] awg:// links decode to valid confs; absent AWG toggle → endpoint still serves wg zip
+  - [x] Seam unit-tested (`node:test`); `wrangler dev` smoke
