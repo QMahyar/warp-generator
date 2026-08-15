@@ -30,6 +30,15 @@
  *                               no-session/token/404/6 h contract; missing
  *                               account → 503; AWG ignored (not
  *                               expressible).
+ *   - GET  /api/<SUB_PATH>/sub/neko — NekoBox desktop links (ticket 07):
+ *                               base64 of one `nekoray://custom#` link per
+ *                               valid endpoint, each wrapping the NekoBox
+ *                               CustomBean JSON with the sing-box
+ *                               wireguard outbound (the legacy ticket-06
+ *                               shape + §2.2 fields) as `cs`. Same
+ *                               no-session/token/404/6 h contract; missing
+ *                               account → 503; AWG ignored (not
+ *                               expressible).
  *   - everything else         — password-gated: unauthenticated requests get
  *                               the login page (HTML) or 401 (any /api/*);
  *                               authenticated requests get the panel shell at
@@ -289,6 +298,27 @@ async function handleSubSingbox(request, env, url) {
   });
 }
 
+/**
+ * GET /api/<token>/sub/neko — the NekoBox desktop subscription (ticket
+ * 07): base64 of one `nekoray://custom#` link per valid endpoint, each
+ * wrapping the NekoBox CustomBean JSON (cs = the sing-box wireguard
+ * outbound — the legacy ticket-06 shape plus the §2.2 fields). Same
+ * contract as handleSub/handleSubClash; AWG is not expressible in the
+ * wrapped outbound — the KV read is skipped (same decision as handleSub).
+ */
+async function handleSubNeko(request, env) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const account = await readAccount(env.ACCOUNT);
+  if (!account) return missingAccount();
+  const stored = await readEndpoints(env.ENDPOINTS); // null when absent/empty — fallback territory
+  const endpoints = stored ? parseEndpointList(stored.text).endpoints : [];
+  const { body, contentType } = renderSubscription('neko', {}, { account, endpoints, awg: null });
+  return new Response(body, {
+    status: 200,
+    headers: { 'Content-Type': contentType, 'Cache-Control': SUB_CACHE_CONTROL },
+  });
+}
+
 async function isAuthorized(request, env) {
   if (!env.PASSWORD) return false; // unconfigured: everything stays gated
   const cookies = parseCookies(request.headers.get('Cookie') || '');
@@ -315,7 +345,7 @@ export default {
     if (url.pathname === '/api/auth/login') return handleLogin(request, env);
     if (url.pathname === '/api/auth/logout') return handleLogout(request, env);
 
-    // Subscription routes (tickets 04 + 05 + 06) — BEFORE the auth gate:
+    // Subscription routes (tickets 04–07) — BEFORE the auth gate:
     // no session, the path token IS the credential. Wrong/missing token →
     // 404 (never 401, which would reveal the route exists). The sub-format
     // routes are matched before the generic `/sub` pattern (the regexes
@@ -329,6 +359,11 @@ export default {
     if (singboxMatch) {
       if (!env.SUB_PATH || !subPathMatches(singboxMatch[1], env.SUB_PATH)) return notFound();
       return handleSubSingbox(request, env, url);
+    }
+    const nekoMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/neko\/?$/);
+    if (nekoMatch) {
+      if (!env.SUB_PATH || !subPathMatches(nekoMatch[1], env.SUB_PATH)) return notFound();
+      return handleSubNeko(request, env);
     }
     const subMatch = url.pathname.match(/^\/api\/([^/]+)\/sub\/?$/);
     if (subMatch) {

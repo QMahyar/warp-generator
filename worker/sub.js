@@ -6,7 +6,12 @@
  * The single seam every subscription format renders through (spec —
  * "Implementation Decisions → Seam"). Pure: no fetch, no env, no KV — the
  * route handlers read KV and pass plain data in. Later tickets add more
- * renderers to the RENDERERS registry (singbox, neko, wg-zip, awg).
+ * renderers to the RENDERERS registry (wg-zip, awg).
+ *
+ * Ticket 07 shipped the `neko` format — NekoBox desktop: base64 of one
+ * `nekoray://custom#` link per valid endpoint, each wrapping the NekoBox
+ * CustomBean JSON with the sing-box wireguard outbound (the ticket-06
+ * legacy shape + the §2.2 fields) as `cs`. See renderNeko.
  *
  * Ticket 06 shipped the `singbox` format — a full minimal sing-box
  * `config.json` for SFA/SFI remote profiles: the 1.13+ WireGuard
@@ -416,6 +421,95 @@ export function renderSingbox(opts, { account, endpoints } = {}) {
   return { body, contentType: 'application/json; charset=utf-8' };
 }
 
+// ---- neko (NekoBox desktop — sub-formats.md §2.2) ----
+
+/**
+ * URL-safe base64 (RFC 4648 §5): standard base64 with `+`→`-`, `/`→`_`,
+ * padding retained. NekoBox desktop REQUIRES this alphabet for the
+ * custom-link fragment: its share writer uses Base64UrlEncoding
+ * (AbstractBean::ToNekorayShareLink) and its importer rejects the
+ * standard alphabet outright (`+`/`/` are IllegalCharacter under
+ * Base64UrlEncoding — sub/GroupUpdater.cpp → 3rdparty/base64.cpp), so
+ * standard base64 would silently drop every imported profile.
+ */
+function toUrlSafeBase64(text) {
+  return Buffer.from(text, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+/**
+ * The `cs` JSON for one endpoint: the ticket-06 pre-1.13 wireguard
+ * OUTBOUND object (same builder — values identical to the ?legacy=1
+ * outbound by construction) plus the three fields the §2.2 sample
+ * carries that the legacy outbound shape omits: `system_interface` false
+ * (userspace — the NekoBox GUI default), NekoBox's `interface_name`
+ * "warp-wg" (only consulted when system_interface is true, but the
+ * sample emits it), and `pre_shared_key` "" (the sample's explicit
+ * empty). The `tag` is the per-endpoint warp-<host>:<port> convention
+ * shared by every renderer (deviation from the sample's static
+ * "wireguard-out" — NekoBox feeds the cs JSON to the core as the
+ * profile's outbound, so the tag is the outbound id; per-endpoint tags
+ * keep one-per-link imports distinguishable).
+ */
+function buildNekoCs(account, ep) {
+  return {
+    ...buildLegacyWireguardOutbound(account, ep),
+    system_interface: false,
+    interface_name: 'warp-wg',
+    pre_shared_key: '',
+  };
+}
+
+/**
+ * One `nekoray://custom#` link (sub-formats.md §2.2; fields verified
+ * against nekoray fmt/CustomBean.hpp + fmt/AbstractBean.cpp): the
+ * CustomBean JSON — `_v` 0 (CustomBean default), `addr` "127.0.0.1" +
+ * `port` 1080 (the local SOCKS listen address/port the desktop client
+ * maps the profile to; sample values — NekoBox re-allocates per running
+ * profile), `cmd` [""] (external-core command list; unused for
+ * core "internal"), `core` "internal" (the bundled sing-box core),
+ * `cs` = the wireguard outbound JSON as a STRING, `mapping_port`/`socks_port`
+ * 0 (external-core mapping only), `name` = `warp-<host>:<port>` (IPv6
+ * re-bracketed) — URL-safe base64 of the whole JSON as the fragment
+ * (see toUrlSafeBase64). NekoBox's import path parses the fragment as
+ * the bean JSON (GroupUpdater RawUpdater: nekoray:// → host "custom" →
+ * NewProxyEntity("custom") → FromJsonBytes(DecodeB64IfValid(fragment)))
+ * and feeds `cs` straight into the core as the outbound object
+ * (CustomBean::BuildCoreObjSingBox).
+ */
+export function buildNekoLink(account, ep) {
+  const bean = {
+    _v: 0,
+    addr: '127.0.0.1',
+    cmd: [''],
+    core: 'internal',
+    cs: JSON.stringify(buildNekoCs(account, ep)),
+    mapping_port: 0,
+    name: proxyNameOf(ep),
+    port: 1080,
+    socks_port: 0,
+  };
+  return `nekoray://custom#${toUrlSafeBase64(JSON.stringify(bean))}`;
+}
+
+/**
+ * The NekoBox desktop renderer: base64 of newline-joined
+ * `nekoray://custom#` links, one per valid endpoint — the same envelope
+ * convention as `/sub` (the desktop updater tries whole-body base64
+ * first, then raw multi-line; sub/GroupUpdater.cpp). Endpoint semantics
+ * are identical to every other renderer (resolveEndpoints — malformed
+ * skipped, zero valid → the fallback pair). `awg` is accepted for seam
+ * uniformity but ignored: the wrapped sing-box wireguard outbound cannot
+ * express AmneziaWG (same as `sub`/`singbox`).
+ */
+export function renderNeko(opts, { account, endpoints } = {}) {
+  if (!account || typeof account.privateKey !== 'string' || !account.privateKey) {
+    throw new SubscriptionError('No WARP account stored — register one in the panel first.');
+  }
+  const lines = resolveEndpoints(endpoints).map((ep) => buildNekoLink(account, ep));
+  const body = Buffer.from(lines.join('\n')).toString('base64');
+  return { body, contentType: 'text/plain; charset=utf-8' };
+}
+
 // ---- the `sub` renderer ----
 
 /**
@@ -442,7 +536,8 @@ const RENDERERS = {
   sub: renderSub,
   clash: renderClash,
   singbox: renderSingbox,
-  // Later tickets: neko, wg (zip), awg.
+  neko: renderNeko,
+  // Later tickets: wg (zip), awg.
 };
 
 /**
