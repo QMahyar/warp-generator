@@ -22,6 +22,13 @@
   // `--var PASSWORD:<value>` to `wrangler dev`.
   // "vars": { "PASSWORD": "local-dev-change-me" }
 
+  // SUB_PATH — subscription path token (ticket 04). The path IS the
+  // credential (ADR 0006): GET /api/<SUB_PATH>/sub needs no session, and
+  // wrong/missing tokens get a 404. Production: `wrangler secret put
+  // SUB_PATH` (long random string, e.g. a 32+ byte hex/base64 value).
+  // Local dev: add it to the vars block above, e.g.
+  //   "SUB_PATH": "local-dev-change-me"
+
   // ACCOUNT — KV binding holding the WARP account record (ticket 02),
   // written only by the panel's Register/Rotate actions.
   // Production: `wrangler kv namespace create ACCOUNT`, then bind its id:
