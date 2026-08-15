@@ -14,5 +14,11 @@
   },
 
   "workers_dev": true,
-  "preview_urls": true
+  "preview_urls": true,
+
+  // PASSWORD — session-cookie signing / login secret for the panel gate.
+  // Production: `wrangler secret put PASSWORD` (never commit it here).
+  // Local dev: uncomment and change the value below, or pass
+  // `--var PASSWORD:<value>` to `wrangler dev`.
+  // "vars": { "PASSWORD": "local-dev-change-me" }
 }
