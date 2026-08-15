@@ -9,9 +9,9 @@ without blocking the valid ones.
 
 **Blocked by:** 01 — Password gate + panel shell
 
-**Status:** ready-for-agent
+**Status:** done — committed (`7c1a118`), worker wg-ticket-03
 
-- [ ] Endpoint lines save to KV and reload; malformed lines flagged client-side
-- [ ] AWG toggle + params save to KV and reload; empty AWG = params absent
-- [ ] Saves survive redeploys
-- [ ] `wrangler dev` smoke with a local KV binding
+- [x] Endpoint lines save to KV and reload; malformed lines flagged client-side
+- [x] AWG toggle + params save to KV and reload; empty AWG = params absent
+- [x] Saves survive redeploys (KV)
+- [x] verification: fetch-level smoke with fake KV (wrangler unavailable)
