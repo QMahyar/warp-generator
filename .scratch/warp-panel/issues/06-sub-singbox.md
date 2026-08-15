@@ -7,8 +7,8 @@ outbound shape for NekoBox Android and Husi.
 
 **Blocked by:** 04 — /sub — wireguard:// lines + ?scheme=wg
 
-**Status:** ready-for-agent
+**Status:** done — committed (`82dac81`), worker wg-ticket-06
 
-- [ ] Default payload valid against sing-box 1.13+ endpoint schema; legacy flag serves outbound schema
-- [ ] One endpoint per endpoint line; ipv6 + custom ports render
-- [ ] Seam unit-tested (`node:test`); `wrangler dev` smoke
+  - [x] Default payload valid against sing-box 1.13+ endpoint schema; legacy flag serves outbound schema
+  - [x] One endpoint per endpoint line; ipv6 + custom ports render
+  - [x] Seam unit-tested (`node:test`); `wrangler dev` smoke
