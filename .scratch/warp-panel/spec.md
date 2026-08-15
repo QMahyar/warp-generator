@@ -44,6 +44,7 @@ a generator page carrying over the original single-config feature.
 19. As a generator user, I want a Generate page in the panel, so that I can still produce a single config and QR for a chosen format.
 20. As a generator user, I want generation to reuse the stored account, so that single configs stop burning fresh WARP registrations.
 21. As a subscriber with a thottled ISP, I want a config per endpoint, so that one of them will connect.
+22. As a panel operator whose registration is rate-limited, I want to import an existing WARP account (conf or registration JSON), so that subscriptions keep working without waiting out the limit.
 
 ## Implementation Decisions
 
@@ -66,7 +67,10 @@ a generator page carrying over the original single-config feature.
 - **Registration**: `registerClient` + `enableWarp` move out of the request
   path into an account module behind `/api/account/register` and
   `/api/account/rotate`; the 10-second timeout and okhttp UA are preserved;
-  per-request registration is removed from the worker.
+  per-request registration is removed from the worker. `/api/account/import`
+  accepts an existing WARP account (WireGuard `.conf` or registration JSON,
+  auto-detected; soft verification when credentials are present; conf-only
+  imports store as unverified) for rate-limited or reused accounts.
 - **Sub endpoints**: all under a path token from the `SUB_PATH` secret:
   `/api/<token>/sub` (`?scheme=wireguard|wg`, default wireguard),
   `/sub/clash`, `/sub/singbox` (`?legacy=1` serves the pre-1.13 outbound
