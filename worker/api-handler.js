@@ -294,6 +294,7 @@ const I1_MASKS = [
 ];
 function pickI1() { return I1_MASKS[Math.floor(Math.random() * I1_MASKS.length)]; }
 // I1_MASKS:END
+export { I1_MASKS, pickI1 }; // consumed by panel.js (AWG card I1 prefill, ticket 03) — keep outside the auto-generated markers
 
 function buildWireguard(p) {
   const address = p.includeIPv6 ? `${p.v4}, ${p.v6}` : p.v4;

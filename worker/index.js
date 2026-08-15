@@ -8,6 +8,9 @@
  *   - GET  /api/account       — account card state (null when none stored)
  *   - POST /api/account/register — register a WARP account, store in ACCOUNT KV
  *   - POST /api/account/rotate   — fresh registration replacing the stored one
+ *   - GET  /api/settings      — endpoints + AWG card state feed (ticket 03)
+ *   - POST /api/settings/endpoints — save the endpoint list to ENDPOINTS KV
+ *   - POST /api/settings/awg — toggle + params to AWG KV (off = absent)
  *   - everything else         — password-gated: unauthenticated requests get
  *                               the login page (HTML) or 401 (any /api/*);
  *                               authenticated requests get the panel shell at
@@ -15,6 +18,8 @@
  *                               elsewhere.
  * Register and Rotate are the ONLY writers of the ACCOUNT binding; the KV
  * write happens strictly after the Cloudflare calls succeed (see account.js).
+ * The settings routes are the ONLY writers of ENDPOINTS and AWG (see
+ * settings.js).
  * PASSWORD comes from the environment (env.PASSWORD). Set it with
  * `wrangler secret put PASSWORD` (see wrangler.jsonc for the local-dev
  * placeholder).
@@ -38,6 +43,14 @@ import {
   verifySession,
   SESSION_COOKIE,
 } from './auth.js';
+import {
+  parseAwgParams,
+  readAwg,
+  readEndpoints,
+  SettingsError,
+  writeAwg,
+  writeEndpoints,
+} from './settings.js';
 import { loginPage, panelShell } from './panel.js';
 
 const METHOD_NOT_ALLOWED = new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -125,6 +138,51 @@ async function handleLogout(request, env) {
   });
 }
 
+// ---- Settings API (ticket 03) ----
+
+/** GET /api/settings — state feed for the endpoints + AWG cards. */
+async function handleGetSettings(request, env) {
+  if (request.method !== 'GET') return METHOD_NOT_ALLOWED;
+  const endpoints = await readEndpoints(env.ENDPOINTS);
+  const awg = await readAwg(env.AWG);
+  return json({ success: true, settings: { endpoints, awg } });
+}
+
+/**
+ * POST /api/settings/endpoints — save the endpoint list verbatim (canonical
+ * form; see settings.js). Malformed lines are flagged, never blocking the
+ * valid ones.
+ */
+async function handleSaveEndpoints(request, env) {
+  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  try {
+    const body = await readLoginBody(request);
+    if (typeof body.text !== 'string') {
+      return json({ success: false, message: 'Expected a JSON body with a "text" field.' }, 400);
+    }
+    const endpoints = await writeEndpoints(env.ENDPOINTS, body.text);
+    return json({ success: true, endpoints });
+  } catch (err) {
+    return json({ success: false, message: err instanceof SettingsError ? err.message : 'Failed to save endpoints.' }, 500);
+  }
+}
+
+/**
+ * POST /api/settings/awg — toggle + params. Body: `{ enabled: true, Jc, …, I5 }`
+ * (flat, conf-named fields). Off → the AWG key is deleted (absent from KV).
+ */
+async function handleSaveAwg(request, env) {
+  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  try {
+    const body = await readLoginBody(request);
+    const { awg, invalid } = parseAwgParams(body);
+    const saved = await writeAwg(env.AWG, awg);
+    return json({ success: true, awg: saved, invalid });
+  } catch (err) {
+    return json({ success: false, message: err instanceof SettingsError ? err.message : 'Failed to save AmneziaWG settings.' }, 500);
+  }
+}
+
 async function isAuthorized(request, env) {
   if (!env.PASSWORD) return false; // unconfigured: everything stays gated
   const cookies = parseCookies(request.headers.get('Cookie') || '');
@@ -161,6 +219,11 @@ export default {
     if (url.pathname === '/api/account') return handleGetAccount(request, env);
     if (url.pathname === '/api/account/register') return handleAccountAction(request, env, 'register');
     if (url.pathname === '/api/account/rotate') return handleAccountAction(request, env, 'rotate');
+
+    // Settings API (ticket 03) — session-gated like the account routes.
+    if (url.pathname === '/api/settings') return handleGetSettings(request, env);
+    if (url.pathname === '/api/settings/endpoints') return handleSaveEndpoints(request, env);
+    if (url.pathname === '/api/settings/awg') return handleSaveAwg(request, env);
 
     // Authenticated: panel shell at the root, gated static assets elsewhere.
     if (url.pathname === '/') return html(panelShell());

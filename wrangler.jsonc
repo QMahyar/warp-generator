@@ -30,4 +30,11 @@
   // ],
   // Local dev: same binding shape with a local namespace id, or use
   // `--kv ACCOUNT:<namespace-id>` with `wrangler dev`.
+
+  // ENDPOINTS / AWG — KV bindings holding the panel settings (ticket 03):
+  // the endpoint list (key "endpoints") and the AmneziaWG toggle + params
+  // (key "awg", absent while off). Written only by the panel's settings
+  // cards. Create both namespaces, then add them to kv_namespaces above:
+  //   { "binding": "ENDPOINTS", "id": "<namespace-id>" },
+  //   { "binding": "AWG", "id": "<namespace-id>" }
 }
