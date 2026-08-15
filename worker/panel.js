@@ -282,6 +282,11 @@ export function panelShell() {
       <button type="button" id="account-register-button">Register account</button>
       <button type="button" id="account-rotate-button">Rotate account</button>
     </div>
+    <textarea id="account-import-input" rows="4" spellcheck="false" placeholder="Paste a WireGuard .conf or the registration JSON from warp-reg — replaces the current account."></textarea>
+    <div class="actions">
+      <button type="button" id="account-import-button">Import account</button>
+    </div>
+    <p id="account-verdict" class="meta feed" hidden></p>
     <div id="account-error" class="error" hidden></div>
   </section>
   <section class="card-panel" id="endpoints-card">
@@ -365,8 +370,16 @@ export function panelShell() {
   const errorEl = document.getElementById('account-error');
   const registerBtn = document.getElementById('account-register-button');
   const rotateBtn = document.getElementById('account-rotate-button');
-  const buttons = [registerBtn, rotateBtn];
-  const LABELS = { register: ['Register account', 'Registering…'], rotate: ['Rotate account', 'Rotating…'] };
+  const importBtn = document.getElementById('account-import-button');
+  const importInput = document.getElementById('account-import-input');
+  const verdictEl = document.getElementById('account-verdict');
+  const buttons = [registerBtn, rotateBtn, importBtn];
+  const LABELS = {
+    register: ['Register account', 'Registering…'],
+    rotate: ['Rotate account', 'Rotating…'],
+    import: ['Import account', 'Importing…'],
+  };
+  let currentAccount = null; // set by render(); drives the confirm-on-replace
 
   function fmt(dateStr) {
     const d = new Date(dateStr);
@@ -374,34 +387,59 @@ export function panelShell() {
   }
 
   function render(account) {
+    currentAccount = account || null;
+    verdictEl.hidden = true;
     if (!account) {
       statusEl.textContent = 'No account';
       statusEl.className = 'badge';
       metaEl.textContent = 'No WARP account yet. Register one — subscriptions need it.';
     } else {
-      statusEl.textContent = 'Registered';
+      const imported = account.source === 'import';
+      statusEl.textContent = imported ? 'Imported' : 'Registered';
       statusEl.className = 'badge ok';
-      metaEl.textContent = 'Registered ' + fmt(account.registeredAt) + ' · ' + (account.v4 || '—');
+      let meta = (imported ? 'Imported ' : 'Registered ') + fmt(account.registeredAt) + ' · ' + (account.v4 || '—');
+      if (imported) {
+        meta += account.verified === true ? ' · Verified with Cloudflare'
+          : account.verifiedAt ? ' · Verification failed — stored anyway'
+          : ' · Unverified (no credentials in the import)';
+      }
+      metaEl.textContent = meta;
     }
     errorEl.hidden = true;
   }
 
   function setBusy(busy, active) {
     buttons.forEach(function (b) { b.disabled = busy; });
-    if (active) active.textContent = busy ? LABELS[active.id === 'account-register-button' ? 'register' : 'rotate'][1]
-                                         : LABELS[active.id === 'account-register-button' ? 'register' : 'rotate'][0];
+    if (active) {
+      const action = active.id === 'account-register-button' ? 'register' : active.id === 'account-rotate-button' ? 'rotate' : 'import';
+      active.textContent = busy ? LABELS[action][1] : LABELS[action][0];
+    }
   }
 
   async function run(action) {
-    const active = action === 'register' ? registerBtn : rotateBtn;
+    const active = action === 'register' ? registerBtn : action === 'rotate' ? rotateBtn : importBtn;
     errorEl.hidden = true;
-    metaEl.textContent = 'Contacting Cloudflare — this takes a couple of seconds…';
+    metaEl.textContent = action === 'import'
+      ? 'Importing — parsing and checking against Cloudflare…'
+      : 'Contacting Cloudflare — this takes a couple of seconds…';
     setBusy(true, active);
     try {
-      const res = await fetch('/api/account/' + action, { method: 'POST' });
+      const init = action === 'import'
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: importInput.value }) }
+        : { method: 'POST' };
+      const res = await fetch('/api/account/' + action, init);
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
       render(data.account);
+      if (action === 'import' && data.verdict) {
+        verdictEl.textContent = data.verdict.verified
+          ? 'Import stored. Credentials verified against Cloudflare — subscriptions are live.'
+          : data.verdict.verifiedAt
+            ? 'Import stored, but verification failed — subscriptions still work; the account may stop connecting.'
+            : 'Import stored as unverified (conf-only, no client id/token) — subscriptions still work.';
+        verdictEl.hidden = false;
+        importInput.value = '';
+      }
     } catch (err) {
       errorEl.textContent = err.message || 'Unknown error';
       errorEl.hidden = false;
@@ -411,8 +449,16 @@ export function panelShell() {
     }
   }
 
+  function runImport() {
+    // Two-step replace: the panel confirms before POSTing; the server
+    // replaces on receipt (like Rotate). Confirm only when an account exists.
+    if (currentAccount && !window.confirm('Import replaces the stored account. Continue?')) return;
+    run('import');
+  }
+
   registerBtn.addEventListener('click', function () { run('register'); });
   rotateBtn.addEventListener('click', function () { run('rotate'); });
+  importBtn.addEventListener('click', runImport);
 
   fetch('/api/account')
     .then(function (r) { return r.json(); })

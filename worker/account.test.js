@@ -66,6 +66,9 @@ test('extractAccountRecord snapshots every account material field', () => {
     v4: '172.16.0.2',
     v6: 'fd01:5ca1:ab1e:82d7:abcd:ef01:2345:6789',
     reserved: 'QGV1zKUsRS4=',
+    source: 'register',
+    verified: false, // ticket 10: register/rotate never soft-check
+    verifiedAt: null,
     registeredAt: '2026-08-15T12:00:00.000Z',
   });
 });
@@ -224,8 +227,15 @@ test('isValidAccountRecord accepts a full record and rejects partial/garbage', (
 });
 
 test('publicAccount exposes only the card fields — never keys or tokens', () => {
-  const out = publicAccount(extractDefault());
-  assert.deepEqual(out, { registeredAt: '2026-08-15T12:00:00.000Z', v4: '172.16.0.2' });
+  const rec = extractDefault();
+  const out = publicAccount(rec);
+  assert.deepEqual(out, {
+    registeredAt: '2026-08-15T12:00:00.000Z',
+    v4: '172.16.0.2',
+    source: 'register',
+    verified: false,
+    verifiedAt: null,
+  });
   const json = JSON.stringify(out);
   assert.ok(!json.includes('privateKey'));
   assert.ok(!json.includes('token'));

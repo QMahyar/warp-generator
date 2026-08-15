@@ -14,10 +14,17 @@
  *                           (JSON record under key "account").
  *   - describeAccountError — maps thrown errors to operator-readable messages.
  *
- * Write ordering contract: the panel's Register/Rotate handlers (worker/
- * index.js) call registerAccount() first and writeAccount() only when the
- * network calls succeeded — a failed action leaves KV untouched. Nothing else
- * in the worker writes the account; subscription routes only read it.
+ * Record shape (the ACCOUNT KV value; ticket 10 added source/verified/verifiedAt
+ * and made clientId/token nullable for credential-less conf imports):
+ *   { privateKey, clientId|null, token|null, peerPublicKey, v4, v6,
+ *     reserved, source: 'register'|'import', verified: boolean,
+ *     verifiedAt: ISO|null, registeredAt }
+ *
+ * Write ordering contract: the panel's Register/Rotate/Import handlers
+ * (worker/index.js) call the account/import module first and writeAccount()
+ * only when parse (+ optional verification) succeeded — a failed action
+ * leaves KV untouched. Nothing else in the worker writes the account;
+ * subscription routes only read it.
  *
  * Environment notes:
  *   - `Buffer` comes from the 'buffer' module (worker bundle under
@@ -60,7 +67,7 @@ async function generateKeyPair() {
 // ---- Cloudflare WARP API ----
 
 function cfStatusMessage(status) {
-  if (status === 429) return 'Cloudflare is rate-limiting registrations from this network. Wait a few minutes, then try again.';
+  if (status === 429) return 'Cloudflare is rate-limiting registrations from this network. Wait a few minutes, then try again — or import an existing account from the account card instead.';
   if (status >= 400 && status < 500) return `Cloudflare rejected the registration (HTTP ${status}).`;
   return `Cloudflare registration API error (HTTP ${status}). Try again later.`;
 }
@@ -138,12 +145,18 @@ export function extractAccountRecord(warp, keypair, { clientId, token, now = () 
     v4: iface.addresses.v4,
     v6: typeof iface.addresses.v6 === 'string' ? iface.addresses.v6 : '',
     reserved: typeof config.client_id === 'string' ? config.client_id : '',
+    source: 'register',
+    verified: false, // ticket 10: register/rotate never soft-check; only imports carry verdicts
+    verifiedAt: null,
     registeredAt: new Date(now()).toISOString(),
   };
 }
 
-const REQUIRED_FIELDS = ['privateKey', 'clientId', 'token', 'peerPublicKey', 'v4', 'registeredAt'];
+const REQUIRED_FIELDS = ['privateKey', 'peerPublicKey', 'v4', 'registeredAt'];
 const OPTIONAL_STRING_FIELDS = ['v6', 'reserved'];
+// Conf imports carry no credentials — stored as null. Nullable now (ticket 10);
+// register/rotate records never have null here.
+const NULLABLE_STRING_FIELDS = ['clientId', 'token'];
 
 /** Shape check for records read back from KV (corrupt/foreign values → null). */
 export function isValidAccountRecord(record) {
@@ -151,15 +164,37 @@ export function isValidAccountRecord(record) {
   for (const f of REQUIRED_FIELDS) {
     if (typeof record[f] !== 'string' || record[f] === '') return false;
   }
+  for (const f of NULLABLE_STRING_FIELDS) {
+    const v = record[f];
+    if (v !== null && (typeof v !== 'string' || v === '')) return false;
+  }
   for (const f of OPTIONAL_STRING_FIELDS) {
     if (typeof record[f] !== 'string') return false;
   }
-  return !Number.isNaN(new Date(record.registeredAt).getTime());
+  if (Number.isNaN(new Date(record.registeredAt).getTime())) return false;
+  // ticket 10 fields — required on new records, tolerated as absent on
+  // pre-import records stored by earlier ticket-02 deploys (legacy compat:
+  // an existing account must survive the upgrade, not read as corrupt).
+  if (record.source !== undefined && record.source !== 'register' && record.source !== 'import') return false;
+  if (record.verified !== undefined && typeof record.verified !== 'boolean') return false;
+  if (record.verifiedAt !== undefined && record.verifiedAt !== null && Number.isNaN(new Date(record.verifiedAt).getTime())) return false;
+  return true;
 }
 
-/** The non-sensitive view the panel card renders. */
+/**
+ * The non-sensitive view the panel card renders. Never exposes privateKey /
+ * clientId / token; the verdict fields (ticket 10) are safe to show. Legacy
+ * records without source/verified (pre-import deploys) read as registered /
+ * unverified.
+ */
 export function publicAccount(record) {
-  return { registeredAt: record.registeredAt, v4: record.v4 };
+  return {
+    registeredAt: record.registeredAt,
+    v4: record.v4,
+    source: record.source === 'import' ? 'import' : 'register',
+    verified: record.verified === true,
+    verifiedAt: record.verifiedAt || null,
+  };
 }
 
 // ---- KV helpers (binding injected; fake-friendly for tests) ----

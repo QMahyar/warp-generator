@@ -8,6 +8,16 @@
  *   - GET  /api/account       — account card state (null when none stored)
  *   - POST /api/account/register — register a WARP account, store in ACCOUNT KV
  *   - POST /api/account/rotate   — fresh registration replacing the stored one
+ *   - POST /api/account/import   — store an existing WARP account pasted as a
+ *                               WireGuard .conf or registration JSON (ticket
+ *                               10): auto-detected, parsed, soft-verified
+ *                               against Cloudflare when it carries id+token
+ *                               (verdict stored, failure never blocks), then
+ *                               KV-written. Replaces the stored account on
+ *                               receipt (the panel confirms first); a failed
+ *                               parse leaves the existing account untouched.
+ *                               Response: { success, action, replaces: true,
+ *                               account, verdict }. Body: { text }.
  *   - GET  /api/settings      — endpoints + AWG card state feed (ticket 03)
  *   - POST /api/settings/endpoints — save the endpoint list to ENDPOINTS KV
  *   - POST /api/settings/awg — toggle + params to AWG KV (off = absent)
@@ -61,8 +71,9 @@
  *                               authenticated requests get the panel shell at
  *                               "/" and gated static assets (ASSETS binding)
  *                               elsewhere.
- * Register and Rotate are the ONLY writers of the ACCOUNT binding; the KV
- * write happens strictly after the Cloudflare calls succeed (see account.js).
+ * Register, Rotate and Import are the ONLY writers of the ACCOUNT binding;
+ * the KV write happens strictly after the Cloudflare calls (or import
+ * parse+verify) succeed (see account.js / import.js).
  * The settings routes are the ONLY writers of ENDPOINTS and AWG (see
  * settings.js).
  * PASSWORD comes from the environment (env.PASSWORD). Set it with
@@ -72,6 +83,7 @@
 
 import { onRequestPost, onRequestOptions, onRequestGet } from './api-handler.js';
 import {
+  AccountError,
   assertAccountBinding,
   describeAccountError,
   publicAccount,
@@ -79,6 +91,7 @@ import {
   registerAccount,
   writeAccount,
 } from './account.js';
+import { importAccount } from './import.js';
 import {
   clearSessionCookie,
   issueSession,
@@ -145,6 +158,52 @@ async function handleAccountAction(request, env, action) {
   } catch (err) {
     const status = Number.isInteger(err && err.status) ? err.status : 500;
     return json({ success: false, message: describeAccountError(err) }, status);
+  }
+}
+
+/**
+ * POST /api/account/import — store an existing WARP account pasted as a
+ * conf or registration JSON (ticket 10). Destructive-replace semantics: the
+ * server replaces the stored account on receipt, like Rotate — the PANEL
+ * confirms first (no separate parse endpoint; the client shows a confirm
+ * dialog before POSTing and the response carries replaces: true). KV write
+ * strictly after parse (+ optional soft verify) succeeds — a failed import
+ * leaves the existing account untouched. Parse errors → 400 with the
+ * parser's readable message.
+ */
+async function handleImportAccount(request, env) {
+  if (request.method !== 'POST') return METHOD_NOT_ALLOWED;
+  let text;
+  try {
+    const body = await readLoginBody(request);
+    if (typeof body.text !== 'string') {
+      return json({ success: false, message: 'Expected a JSON body with a "text" field — paste a WireGuard .conf or registration JSON.' }, 400);
+    }
+    text = body.text;
+    if (!text.trim()) {
+      return json({ success: false, message: 'Empty input — paste a WireGuard .conf or the registration JSON from warp-reg.' }, 400);
+    }
+    if (text.length > 65536) {
+      return json({ success: false, message: 'Input too large — a .conf or registration JSON is a few kilobytes.' }, 400);
+    }
+  } catch {
+    return json({ success: false, message: 'Could not read the request body.' }, 400);
+  }
+  try {
+    assertAccountBinding(env.ACCOUNT); // fail fast — never verify/parse into a void
+    const { record, verdict } = await importAccount(env.ACCOUNT, text);
+    return json({
+      success: true,
+      action: 'import',
+      replaces: true, // reached only after parse succeeded → the store was replaced
+      account: publicAccount(record),
+      verdict,
+    });
+  } catch (err) {
+    if (err instanceof AccountError) {
+      return json({ success: false, message: err.message }, 400); // readable parse/input errors
+    }
+    return json({ success: false, message: 'Failed to import the account.' }, 500);
   }
 }
 
@@ -450,6 +509,7 @@ export default {
     if (url.pathname === '/api/account') return handleGetAccount(request, env);
     if (url.pathname === '/api/account/register') return handleAccountAction(request, env, 'register');
     if (url.pathname === '/api/account/rotate') return handleAccountAction(request, env, 'rotate');
+    if (url.pathname === '/api/account/import') return handleImportAccount(request, env);
 
     // Settings API (ticket 03) — session-gated like the account routes.
     if (url.pathname === '/api/settings') return handleGetSettings(request, env);
