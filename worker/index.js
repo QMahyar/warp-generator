@@ -1,7 +1,18 @@
 /**
  * Cloudflare Worker entry point.
- * Route map (ticket 01 + ticket 02):
- *   - /api/generate (+ OPTIONS, GET, 405) — legacy public generator API, unchanged.
+ * Route map (ticket 01 + ticket 02 + ticket 09):
+ *   - /api/generator (POST) — the session-gated single-config generator
+ *                               (ticket 09): renders from the STORED ACCOUNT
+ *                               KV record (readAccount — never /reg), answers
+ *                               in the legacy /api/generate response shape;
+ *                               missing account → 503, unknown format → 400.
+ *                               The legacy PUBLIC /api/generate GET/POST/
+ *                               OPTIONS routes are REMOVED (they registered a
+ *                               fresh WARP account per request — ADR 0002);
+ *                               they fall through to the gate (anon → 401)
+ *                               or ASSETS 404. The Next.js app still points
+ *                               at /api/generate — it is unmaintained
+ *                               (ADR 0004) and its generator page is dead.
  *   - POST /api/auth/login    — password check (constant-time) → HMAC-signed
  *                               session cookie, 303 → /
  *   - POST /api/auth/logout   — clears the session cookie, 303 → /
@@ -81,7 +92,7 @@
  * placeholder).
  */
 
-import { onRequestPost, onRequestOptions, onRequestGet } from './api-handler.js';
+import { handleGeneratePost } from './generate.js';
 import {
   AccountError,
   assertAccountBinding,
@@ -447,18 +458,6 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
-    // Legacy public generator API — unchanged behaviour, still public.
-    if (url.pathname === '/api/generate' || url.pathname === '/api/generate/') {
-      if (request.method === 'OPTIONS') return onRequestOptions();
-      if (request.method === 'POST') return onRequestPost({ request, env, ctx });
-      if (request.method === 'GET') return onRequestGet();
-
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      });
-    }
-
     // Auth endpoints (reachable without a session).
     if (url.pathname === '/api/auth/login') return handleLogin(request, env);
     if (url.pathname === '/api/auth/logout') return handleLogout(request, env);
@@ -504,6 +503,10 @@ export default {
       if (url.pathname.startsWith('/api/')) return unauthorized();
       return html(loginPage({ error: url.searchParams.get('error') }));
     }
+
+    // Generator API (ticket 09) — session-gated like the account/settings
+    // routes; renders from the STORED account (never registers per request).
+    if (url.pathname === '/api/generator') return handleGeneratePost(request, env);
 
     // Account API (ticket 02) — only reachable with a valid session.
     if (url.pathname === '/api/account') return handleGetAccount(request, env);

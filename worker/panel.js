@@ -6,13 +6,25 @@
  * ticket 03 adds the Endpoints card (textarea of host:port lines →
  * ENDPOINTS KV) and the AmneziaWG card (toggle + Jc/Jmin/Jmax/S1–S4/H1–H4/
  * I1–I5 → AWG KV; I1 prefill pool comes from the worker's I1 mask pool).
+ * Ticket 09 adds the Generator card: the single-config flow carried over
+ * from the legacy UI (format/device/endpoint/DNS/site-mode/IPv6/keepalive/
+ * custom I1) POSTing to the gated /api/generator which renders from the
+ * STORED account — no per-request registration. The format/DNS/service
+ * lists are embedded from worker/generate.js (FORMATS, DNS_PROVIDERS,
+ * SERVICES); the community-DNS "all sites" rule and the 503 missing-account
+ * message are mirrored in the page.
  *
  * No JS framework, no external assets, no build step. All styling is one
  * inline <style> block; the shell's logout is a plain form POST. Dynamic
  * values are injected via textContent / input.value — never innerHTML.
  */
 
-import { I1_MASKS } from './api-handler.js';
+import { DNS_PROVIDERS, FORMATS, I1_MASKS, SERVICES } from './generate.js';
+
+// Static option lists for the generator card (ticket 09) — values come from
+// our own constant registries, so building them into the shell is safe.
+const FORMAT_OPTIONS = FORMATS.map((f) => `<option value="${f.id}">${f.name}</option>`).join('\n');
+const DNS_OPTIONS = DNS_PROVIDERS.map((d) => `<option value="${d.id}">${d.label}${d.isCommunity ? ' •' : ''}</option>`).join('\n');
 
 function page(title, body) {
   return `<!doctype html>
@@ -221,6 +233,62 @@ function page(title, body) {
   .feed { margin-top: 12px; padding: 6px 10px; border-radius: 8px; font-size: 12px; }
   .feed.ok { color: #9ece6a; background: rgba(158, 206, 106, 0.08); }
   .feed.err { color: var(--danger); background: rgba(247, 118, 142, 0.08); }
+  /* ---- Generator card (ticket 09) ---- */
+  .gen-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .gen-wide { grid-column: 1 / -1; }
+  .gen-field label { margin-bottom: 4px; }
+  .gen-field select,
+  .gen-field input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #12192b;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .gen-field select:focus, .gen-field input[type="text"]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .gen-field input[type="text"] { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .gen-field select:disabled, .gen-field input:disabled { opacity: 0.5; }
+  .gen-toggles { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; align-items: center; }
+  .gen-toggles .toggle { max-width: none; white-space: nowrap; }
+  .gen-toggles input[type="text"] {
+    width: 90px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #12192b;
+    color: var(--text);
+    font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .gen-toggles input[type="text"]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .gen-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .gen-chips button {
+    width: auto;
+    margin: 0;
+    padding: 6px 12px;
+    font-size: 13px;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .gen-chips button:hover { border-color: var(--accent); filter: none; }
+  .gen-chips button.on { background: rgba(122, 162, 247, 0.18); border-color: var(--accent); color: #e8eefc; }
+  .gen-result { margin-top: 12px; padding: 12px 14px; border: 1px solid rgba(158, 206, 106, 0.4); border-radius: 8px; background: rgba(158, 206, 106, 0.06); }
+  .gen-result .actions { margin-top: 10px; }
+  .gen-result .actions button { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  .gen-result .actions button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .gen-result .meta { margin: 0; }
+  .gen-result img { display: block; margin-top: 12px; max-width: 200px; image-rendering: pixelated; border-radius: 8px; }
+  .gen-hint { margin: 10px 0 0; }
+  .gen-hint a { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -361,6 +429,69 @@ export function panelShell() {
       <button type="button" id="awg-save-button">Save AWG settings</button>
     </div>
     <p id="awg-feedback" class="meta feed" hidden></p>
+  </section>
+  <section class="card-panel" id="generator-card">
+    <div class="card-head">
+      <h2>Generator</h2>
+      <span id="generator-status" class="badge">Single config</span>
+    </div>
+    <p class="meta">One config for one client, rendered from the stored account — no new WARP registration happens here.</p>
+    <div class="gen-grid">
+      <div class="gen-field">
+        <label for="gen-format">Config format</label>
+        <select id="gen-format">
+${FORMAT_OPTIONS}
+        </select>
+      </div>
+      <div class="gen-field">
+        <label for="gen-device">Connection settings</label>
+        <select id="gen-device">
+          <option value="awg15">AmneziaWG 1.5</option>
+        </select>
+      </div>
+      <div class="gen-field gen-wide">
+        <label for="gen-endpoint">Endpoint override</label>
+        <input type="text" id="gen-endpoint" spellcheck="false" placeholder="162.159.192.1:2408">
+      </div>
+      <div class="gen-field">
+        <label for="gen-dns">DNS</label>
+        <select id="gen-dns">
+${DNS_OPTIONS}
+        </select>
+      </div>
+      <div class="gen-field">
+        <label for="gen-sitemode">Config type</label>
+        <select id="gen-sitemode">
+          <option value="all">All sites</option>
+          <option value="specific">Specific sites</option>
+        </select>
+      </div>
+    </div>
+    <div id="gen-services" class="gen-chips" hidden></div>
+    <div class="gen-toggles">
+      <label class="toggle"><input type="checkbox" id="gen-ipv6" checked><span>IPv6 addresses</span></label>
+      <label class="toggle"><input type="checkbox" id="gen-exclude-lan"><span>Exclude LAN / link-local</span></label>
+      <label class="toggle"><input type="checkbox" id="gen-keepalive-enabled"><span>Persistent keepalive</span></label>
+      <input type="text" id="gen-keepalive" inputmode="numeric" placeholder="25" disabled>
+    </div>
+    <div class="gen-field gen-wide" id="gen-i1-row" hidden>
+      <label for="gen-i1-domain">Custom I1 domain (advanced) — QUIC initial mask, only for the AmneziaWG format</label>
+      <input type="text" id="gen-i1-domain" spellcheck="false" placeholder="ozon.ru">
+    </div>
+    <div class="actions">
+      <button type="button" id="gen-generate-button">Generate config</button>
+    </div>
+    <p class="meta gen-hint">Needs the account from the <a href="#account-card">account card</a> — if you have not registered or imported one yet, do that first.</p>
+    <p id="gen-feedback" class="meta feed" hidden></p>
+    <div id="gen-result" class="gen-result" hidden>
+      <p id="gen-result-file" class="meta"></p>
+      <div class="actions">
+        <button type="button" id="gen-copy-button">Copy config</button>
+        <button type="button" id="gen-download-button">Download</button>
+        <button type="button" id="gen-qr-button" hidden>Show QR</button>
+      </div>
+      <img id="gen-qr" alt="QR code" hidden>
+    </div>
   </section>
 </main>
 <script>
@@ -714,6 +845,203 @@ export function panelShell() {
     .catch(function () {
       setEndpointFeedback('Could not load settings — is the panel configured?', 'err');
     });
+})();
+</script>
+<script>
+(() => {
+  // Generator card (ticket 09): the legacy single-config flow POSTing to the
+  // gated /api/generator, which renders from the STORED account — no /reg
+  // calls. Mirrors hooks/use-generator.ts: community DNS forces "all sites"
+  // (same rule the server enforces), "specific" turns off exclude-LAN,
+  // picking any service turns off exclude-LAN. Dynamic values go through
+  // textContent / .value / img.src — never innerHTML.
+  const SERVICES_LIST = ${JSON.stringify(SERVICES)};
+  const FORMATS_LIST = ${JSON.stringify(FORMATS)};
+  const DNS_LIST = ${JSON.stringify(DNS_PROVIDERS)};
+
+  const formatEl = document.getElementById('gen-format');
+  const deviceEl = document.getElementById('gen-device');
+  const endpointEl = document.getElementById('gen-endpoint');
+  const dnsEl = document.getElementById('gen-dns');
+  const siteModeEl = document.getElementById('gen-sitemode');
+  const servicesEl = document.getElementById('gen-services');
+  const ipv6El = document.getElementById('gen-ipv6');
+  const excludeLanEl = document.getElementById('gen-exclude-lan');
+  const keepaliveEnabledEl = document.getElementById('gen-keepalive-enabled');
+  const keepaliveEl = document.getElementById('gen-keepalive');
+  const i1RowEl = document.getElementById('gen-i1-row');
+  const i1DomainEl = document.getElementById('gen-i1-domain');
+  const generateBtn = document.getElementById('gen-generate-button');
+  const statusEl = document.getElementById('generator-status');
+  const feedbackEl = document.getElementById('gen-feedback');
+  const resultEl = document.getElementById('gen-result');
+  const resultFileEl = document.getElementById('gen-result-file');
+  const copyBtn = document.getElementById('gen-copy-button');
+  const downloadBtn = document.getElementById('gen-download-button');
+  const qrBtn = document.getElementById('gen-qr-button');
+  const qrImg = document.getElementById('gen-qr');
+
+  let selectedServices = [];
+  let result = null; // { configBase64, qrCodeBase64, configFormat, fileName }
+  let qrVisible = false;
+
+  function dnsProvider(id) { return DNS_LIST.find(function (d) { return d.id === id; }) || DNS_LIST[0]; }
+  function isCommunityDns(id) { return dnsProvider(id).isCommunity === true; }
+
+  function setFeedback(text, kind) {
+    feedbackEl.textContent = text;
+    feedbackEl.className = 'meta feed' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+    feedbackEl.hidden = false;
+  }
+
+  function hideResult() {
+    resultEl.hidden = true;
+    result = null;
+    qrVisible = false;
+  }
+
+  // ---- site picker (name-only chips, static list from worker/generate.js) ----
+  function renderServices() {
+    servicesEl.textContent = '';
+    const visible = siteModeEl.value === 'specific' && !isCommunityDns(dnsEl.value);
+    servicesEl.hidden = !visible;
+    if (!visible) return;
+    SERVICES_LIST.forEach(function (s) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.textContent = s.name;
+      chip.className = selectedServices.includes(s.id) ? 'on' : '';
+      chip.addEventListener('click', function () {
+        if (isCommunityDns(dnsEl.value)) return;
+        const i = selectedServices.indexOf(s.id);
+        if (i === -1) selectedServices.push(s.id);
+        else selectedServices.splice(i, 1);
+        if (selectedServices.length) excludeLanEl.checked = false; // legacy use-generator behavior
+        renderServices();
+      });
+      servicesEl.appendChild(chip);
+    });
+  }
+
+  function refreshSiteModeUI() {
+    const community = isCommunityDns(dnsEl.value);
+    if (community) {
+      siteModeEl.value = 'all'; // community DNS forbids split tunneling (server rule mirrored)
+      selectedServices = [];
+      siteModeEl.querySelector('option[value="specific"]').disabled = true;
+    } else {
+      siteModeEl.querySelector('option[value="specific"]').disabled = false;
+    }
+    renderServices();
+  }
+
+  dnsEl.addEventListener('change', function () {
+    if (isCommunityDns(dnsEl.value)) selectedServices = [];
+    refreshSiteModeUI();
+  });
+  siteModeEl.addEventListener('change', function () {
+    if (siteModeEl.value === 'specific' && isCommunityDns(dnsEl.value)) {
+      siteModeEl.value = 'all'; // refuses (legacy setSiteMode guard)
+      return;
+    }
+    if (siteModeEl.value === 'specific') excludeLanEl.checked = false; // exclude-LAN is an all-sites option
+    renderServices();
+  });
+  formatEl.addEventListener('change', function () {
+    // Custom I1 is only meaningful where I1 lands: the AmneziaWG wireguard format.
+    i1RowEl.hidden = formatEl.value !== 'wireguard';
+  });
+  keepaliveEnabledEl.addEventListener('change', function () {
+    keepaliveEl.disabled = !keepaliveEnabledEl.checked;
+  });
+
+  function setBusy(busy) {
+    generateBtn.disabled = busy;
+    generateBtn.textContent = busy ? 'Generating…' : 'Generate config';
+  }
+
+  async function generate() {
+    setFeedback('', '');
+    hideResult();
+    setBusy(true);
+    try {
+      const endpoint = endpointEl.value.trim() || 'engage.cloudflareclient.com:4500';
+      const persistentKeepalive = keepaliveEnabledEl.checked
+        ? (parseInt(keepaliveEl.value, 10) || 25)
+        : null;
+      const customI1Domain = i1RowEl.hidden ? '' : i1DomainEl.value.trim();
+      const res = await fetch('/api/generator', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selectedServices: selectedServices,
+          siteMode: siteModeEl.value,
+          deviceType: deviceEl.value,
+          endpoint: endpoint,
+          configFormat: formatEl.value,
+          dnsId: dnsEl.value,
+          ipv6: ipv6El.checked,
+          excludeLan: excludeLanEl.checked,
+          persistentKeepalive: persistentKeepalive,
+          customI1Domain: customI1Domain,
+        }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.success || !data.content) {
+        throw new Error(data.message || ('Generation failed (HTTP ' + res.status + ')'));
+      }
+      result = data.content;
+      const info = FORMATS_LIST.find(function (f) { return f.id === result.configFormat; }) || FORMATS_LIST[0];
+      resultFileEl.textContent = 'Your ' + info.name + ' configuration is ready — file: ' + result.fileName;
+      resultEl.hidden = false;
+      qrBtn.hidden = !result.qrCodeBase64;
+      qrVisible = false;
+      qrImg.hidden = true;
+    } catch (err) {
+      setFeedback(err.message || 'Generation failed.', 'err');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  copyBtn.addEventListener('click', function () {
+    if (!result) return;
+    navigator.clipboard.writeText(atob(result.configBase64))
+      .then(function () { setFeedback('Config copied to clipboard.', 'ok'); })
+      .catch(function () { setFeedback('Could not copy — copy it manually from the download.', 'err'); });
+  });
+  downloadBtn.addEventListener('click', function () {
+    if (!result) return;
+    const a = document.createElement('a');
+    a.href = 'data:application/octet-stream;base64,' + result.configBase64;
+    a.download = result.fileName;
+    a.click();
+  });
+  qrBtn.addEventListener('click', function () {
+    qrVisible = !qrVisible;
+    qrImg.src = result && result.qrCodeBase64 ? result.qrCodeBase64 : '';
+    qrImg.hidden = !qrVisible;
+    qrBtn.textContent = qrVisible ? 'Hide QR' : 'Show QR';
+  });
+  generateBtn.addEventListener('click', generate);
+
+  // ---- load current state: endpoints feed the endpoint override default ----
+  Promise.all([
+    fetch('/api/settings').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+    fetch('/api/account').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+  ]).then(function (results) {
+    const settings = results[0].settings || {};
+    if (settings.endpoints && settings.endpoints.text) {
+      const first = settings.endpoints.text.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0];
+      if (first) endpointEl.value = first;
+    }
+    const account = results[1].account;
+    if (!account) {
+      statusEl.textContent = 'No account';
+      statusEl.className = 'badge err';
+      generateBtn.disabled = true;
+    }
+  });
 })();
 </script>
 `);
