@@ -488,7 +488,7 @@ export default {
     if (url.pathname === '/api/settings/awg') return handleSaveAwg(request, env);
 
     // Authenticated: panel shell at the root, gated static assets elsewhere.
-    if (url.pathname === '/') return html(panelShell());
+    if (url.pathname === '/') return html(panelShell({ origin: url.origin, subPath: env.SUB_PATH }));
     return env.ASSETS.fetch(request);
   },
 };

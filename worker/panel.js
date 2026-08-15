@@ -26,6 +26,39 @@ import { DNS_PROVIDERS, FORMATS, I1_MASKS, SERVICES } from './generate.js';
 const FORMAT_OPTIONS = FORMATS.map((f) => `<option value="${f.id}">${f.name}</option>`).join('\n');
 const DNS_OPTIONS = DNS_PROVIDERS.map((d) => `<option value="${d.id}">${d.label}${d.isCommunity ? ' •' : ''}</option>`).join('\n');
 
+/** HTML-escape a value embedded in the shell (defensive: SUB_PATH is operator-set). */
+function esc(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/**
+ * The six subscription rows (tickets 04–08) rendered into the Subscriptions
+ * card — absolute URLs the operator copies into clients. The token in the
+ * path IS the credential (ADR 0006), so the card warns about sharing.
+ * Empty subPath → an explainer row instead of links.
+ */
+function subscriptionList(origin, subPath) {
+  if (!subPath) {
+    return `<div class="error">The SUB_PATH secret is not set — run <code>wrangler secret put SUB_PATH</code> with a long random string, then redeploy. Until then no subscription URL exists.</div>`;
+  }
+  const base = `${origin}/api/${subPath}/sub`;
+  const rows = [
+    ['v2rayN family', 'wireguard:// links', base],
+    ['Throne', 'wg:// links', `${base}?scheme=wg`],
+    ['Clash', 'YAML proxy list', `${base}/clash`],
+    ['sing-box', 'JSON profile', `${base}/singbox`],
+    ['NekoBox desktop', 'nekoray:// links', `${base}/neko`],
+    ['WireGuard app', 'zip of .conf files', `${base}/wg`],
+    ['awg:// clients (LxBox, INCY)', 'awg:// links', `${base}/awg`],
+  ];
+  return rows.map(([name, desc, url]) => `
+    <li>
+      <span class="sub-name">${esc(name)}<small>${esc(desc)}</small></span>
+      <code>${esc(url)}</code>
+      <button type="button" class="sub-copy" data-copy="${esc(url)}">Copy</button>
+    </li>`).join('\n');
+}
+
 function page(title, body) {
   return `<!doctype html>
 <html lang="en">
@@ -111,8 +144,9 @@ function page(title, body) {
   }
   header .brand { font-weight: 700; color: #e8eefc; }
   nav { display: flex; gap: 16px; font-size: 14px; }
-  nav span { color: var(--muted); cursor: default; }
-  nav span.active { color: var(--text); }
+  nav a { color: var(--muted); text-decoration: none; }
+  nav a.active { color: var(--text); }
+  nav a:hover { color: var(--text); }
   header form { margin-left: auto; }
   header form button { width: auto; margin: 0; padding: 6px 14px; font-size: 13px; background: transparent; color: var(--muted); border: 1px solid var(--border); }
   header form button:hover { color: var(--danger); border-color: var(--danger); filter: none; }
@@ -233,6 +267,39 @@ function page(title, body) {
   .feed { margin-top: 12px; padding: 6px 10px; border-radius: 8px; font-size: 12px; }
   .feed.ok { color: #9ece6a; background: rgba(158, 206, 106, 0.08); }
   .feed.err { color: var(--danger); background: rgba(247, 118, 142, 0.08); }
+  /* ---- Subscriptions card ---- */
+  .sub-list { list-style: none; margin: 14px 0 0; padding: 0; }
+  .sub-list li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .sub-list li:last-child { border-bottom: 0; }
+  .sub-name { flex: 0 0 170px; font-size: 13px; color: #e8eefc; }
+  .sub-name small { display: block; color: var(--muted); font-size: 11px; }
+  .sub-list code {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--accent);
+  }
+  .sub-list button {
+    width: auto;
+    margin: 0;
+    padding: 5px 12px;
+    font-size: 12px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    cursor: pointer;
+    flex: 0 0 auto;
+  }
+  .sub-list button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .sub-list button.copied { color: #9ece6a; border-color: rgba(158, 206, 106, 0.4); }
   /* ---- Generator card (ticket 09) ---- */
   .gen-grid {
     display: grid;
@@ -325,15 +392,18 @@ export function loginPage({ error = null } = {}) {
  * error rendering. Framework-less per ADR 0004 — dynamic values are injected
  * via textContent, never innerHTML.
  */
-export function panelShell() {
-  return page('WARP Panel', `
+export function panelShell({ origin = '', subPath = '' } = {}) {
+  // String.raw: the inline scripts carry regex/string escapes (\d, \n, …)
+  // that an ordinary template literal would cook away and break in the
+  // browser — keep them byte-exact. ${…} interpolation still works.
+  return page('WARP Panel', String.raw`
 <header>
   <span class="brand">WARP Panel</span>
   <nav>
-    <span class="active">Account</span>
-    <span>Endpoints</span>
-    <span>Subscriptions</span>
-    <span>Generator</span>
+    <a href="#account-card" class="active">Account</a>
+    <a href="#endpoints-card">Endpoints</a>
+    <a href="#subscriptions-card">Subscriptions</a>
+    <a href="#generator-card">Generator</a>
   </nav>
   <form method="post" action="/api/auth/logout">
     <button type="submit">Log out</button>
@@ -429,6 +499,16 @@ export function panelShell() {
       <button type="button" id="awg-save-button">Save AWG settings</button>
     </div>
     <p id="awg-feedback" class="meta feed" hidden></p>
+  </section>
+  <section class="card-panel" id="subscriptions-card">
+    <div class="card-head">
+      <h2>Subscriptions</h2>
+      <span class="badge">${subPath ? '6 formats' : 'Not configured'}</span>
+    </div>
+    <p class="meta">One link per client family — paste it into the subscription field of the target app. The token inside the link <strong>is</strong> the credential (no password, ADR 0006): anyone holding a link can fetch it, so share only with people you trust. Links stay stable across account rotations and endpoint edits.</p>
+    <ul class="sub-list">
+${subscriptionList(origin, subPath)}
+    </ul>
   </section>
   <section class="card-panel" id="generator-card">
     <div class="card-head">
@@ -1041,6 +1121,26 @@ ${DNS_OPTIONS}
       statusEl.className = 'badge err';
       generateBtn.disabled = true;
     }
+  });
+})();
+</script>
+<script>
+(() => {
+  // Subscriptions card copy buttons — textContent only, no innerHTML.
+  document.querySelectorAll('.sub-copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const url = btn.getAttribute('data-copy');
+      const done = function () {
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done).catch(done);
+      } else {
+        done(); // no clipboard API — the row stays visible for manual copying
+      }
+    });
   });
 })();
 </script>
