@@ -1,0 +1,42 @@
+# ── Stage 1: Dependencies ──
+FROM node:22-alpine AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
+
+# ── Stage 2: Build ──
+FROM node:22-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+ENV DOCKER_BUILD=1
+ENV NODE_OPTIONS="--max-old-space-size=2048"
+RUN npm run build
+
+# ── Stage 3: Production ──
+FROM node:22-alpine AS runner
+WORKDIR /app
+
+LABEL org.opencontainers.image.title="warp-config-generator"
+LABEL org.opencontainers.image.description="WARP config generator — public Docker build"
+LABEL org.opencontainers.image.source="https://github.com/QMahyar/warp-generator"
+LABEL org.opencontainers.image.licenses="MIT"
+LABEL build.variant="public"
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+# Standalone server
+COPY --from=builder /app/.next/standalone ./
+# Static assets
+COPY --from=builder /app/.next/static ./.next/static
+# Public files
+COPY --from=builder /app/public ./public
+# Service JSON configs (needed by services-loader at runtime)
+COPY --from=builder /app/config ./config
+USER nextjs
+EXPOSE 3000
+CMD ["node", "server.js"]

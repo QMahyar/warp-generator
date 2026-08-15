@@ -1,0 +1,135 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Amber brand */
+    --amber-50: #FEF8F0;
+    --amber-100: #FAEEDA;
+    --amber-300: #FAC775;
+    --amber-500: #EF9F27;
+    --amber-700: #854F0B;
+    --amber-900: #412402;
+
+    /* Warm gray neutrals */
+    --gray-950: #09090b;
+    --gray-900: #111114;
+    --gray-800: #1c1c20;
+    --gray-700: #27272a;
+    --gray-600: #3f3f46;
+    --gray-500: #52525b;
+    --gray-400: #71717a;
+    --gray-300: #a1a1aa;
+    --gray-200: #d4d4d8;
+    --gray-100: #e4e4e7;
+    --gray-50: #fafaf9;
+
+    /* Semantic */
+    --success: #22c55e;
+    --success-soft: #22c55e15;
+    --error: #ef4444;
+    --error-soft: #ef444415;
+    --info: #3b82f6;
+    --info-soft: #3b82f615;
+    --warning: #EF9F27;
+    --warning-soft: #EF9F2715;
+
+    /* Mapped tokens */
+    --bg: var(--gray-950);
+    --surface: var(--gray-900);
+    --surface-2: var(--gray-800);
+    --surface-3: var(--gray-700);
+    --border: var(--gray-600);
+    --border-hover: var(--gray-500);
+    --text: var(--gray-50);
+    --text-muted: var(--gray-300);
+    --text-dim: var(--gray-400);
+    --text-faint: var(--gray-500);
+
+    --accent: var(--amber-500);
+    --accent-soft: #EF9F2718;
+    --accent-hover: #d4900f;
+
+    /* Spacing */
+    --space-xs: 4px;
+    --space-sm: 8px;
+    --space-md: 16px;
+    --space-lg: 24px;
+    --space-xl: 40px;
+
+    /* Radius */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --radius-xl: 20px;
+
+    /* shadcn compatibility */
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 6.7%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 6.7%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 37 85% 55%;
+    --primary-foreground: 30 100% 8%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 86% 97%;
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 37 85% 55%;
+    --radius: 0.625rem;
+  }
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gray-600);
+  border-radius: 3px;
+}
+
+/* Selection */
+::selection {
+  background: var(--amber-500);
+  color: var(--gray-950);
+}
+
+/* Component utilities */
+.result-btn {
+  @apply flex-1 min-w-[90px] h-9 bg-[var(--surface-2)] border border-[var(--border)] rounded-lg
+    text-[12px] text-[var(--text)] flex items-center justify-center gap-1.5
+    hover:bg-[var(--surface-3)] hover:border-[var(--border-hover)] transition-all cursor-pointer;
+}
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.animate-in { animation: fade-in 0.3s ease both; }
