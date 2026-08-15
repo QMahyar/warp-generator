@@ -11,11 +11,11 @@ renderers use.
 
 **Blocked by:** 02 — WARP account Register/Rotate (KV), 03 — Panel settings
 
-**Status:** ready-for-agent
+**Status:** done — committed (`4d0fde0`), worker wg-ticket-04
 
-- [ ] Link list parses correctly per v2rayN spec (docs/research/sub-formats.md §2.1)
-- [ ] `?scheme=wg` returns Throne-shaped links; default is wireguard://
-- [ ] One link per endpoint; ipv6 and custom ports render; empty list → fallback endpoints
-- [ ] Sub requires no auth but 404s without the correct path token
-- [ ] Caching headers present; seam unit-tested (`node:test`)
-- [ ] `wrangler dev` smoke: curl the sub URL, decode, paste into v2rayN
+^  - [x] Link list parses correctly per v2rayN spec (docs/research/sub-formats.md §2.1)
+^  - [x] `?scheme=wg` returns Throne-shaped links; default is wireguard://
+^  - [x] One link per endpoint; ipv6 and custom ports render; empty list → fallback endpoints
+^  - [x] Sub requires no auth but 404s without the correct path token
+^  - [x] Caching headers present; seam unit-tested (`node:test`)
+^  - [x] `wrangler dev` smoke: curl the sub URL, decode, paste into v2rayN
