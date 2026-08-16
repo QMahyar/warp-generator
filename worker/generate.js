@@ -4,7 +4,7 @@
  * Ticket 09 moved the legacy per-request generator out of the request
  * path: worker/api-handler.js (per-request registerClient→enableWarp) is
  * retired and its builders/constants now live here, rendering from the
- * STORED WARP account (the ACCOUNT KV record — see account.js) instead of
+ * STORED WARP account (from the state snapshot — see state.js) instead of
  * registering a fresh account per request (ADR 0002: one shared account,
  * no per-request registration). No /reg network calls exist anywhere in
  * this module: the private key, peer public key, v4/v6 addresses and
@@ -21,7 +21,7 @@
  */
 
 import { Buffer } from 'buffer';
-import { readAccount } from './account.js'; // the stored-account KV read (never the network)
+import { readState } from './state.js'; // the state-snapshot read (never the network)
 
 // QRCode (npm 'qrcode') is imported LAZILY: the worker bundle resolves it
 // via find_additional_modules + nodejs_compat (same as the legacy static
@@ -294,6 +294,9 @@ function pickI1() { return I1_MASKS[Math.floor(Math.random() * I1_MASKS.length)]
 
 function buildWireguard(p) {
   const address = p.includeIPv6 ? `${p.v4}, ${p.v6}` : p.v4;
+  // Bare addresses (no CIDR) — legacy parity, byte-identical to the retired
+  // api-handler builder. The worker /sub/wg conf deliberately uses CIDR
+  // (confAddress); both parse fine in the official app, so no convergence.
   const lines = ['[Interface]', `PrivateKey = ${p.privateKey}`, `Address = ${address}`, `DNS = ${p.dns}`, 'MTU = 1280', 'S1 = 0', 'S2 = 0', 'Jc = 4', 'Jmin = 40', 'Jmax = 70', 'H1 = 1', 'H2 = 2', 'H3 = 3', 'H4 = 4'];
   if (p.deviceType === 'awg15') lines.push(p.i1);
   lines.push('', '[Peer]', `PublicKey = ${p.publicKey}`, `AllowedIPs = ${p.allowedIPs}`, `Endpoint = ${p.endpoint}`);
@@ -309,7 +312,43 @@ function buildThrone(p) {
 
 function buildClash(p) {
   const [server, port] = p.endpoint.split(':');
-  return `proxies:\n- name: "WARP"\n  type: wireguard\n  private-key: ${p.privateKey}\n  server: ${server}\n  port: ${port}\n  ip: ${p.v4}\n  public-key: ${p.publicKey}\n  allowed-ips: ['0.0.0.0/0']\n  reserved: [${reservedToCSV(p.reserved)}]\n  udp: true\n  mtu: 1280\n  remote-dns-resolve: true\n  dns: [${p.dns}]\n  amnezia-wg-option:\n   jc: 4\n   jmin: 40\n   jmax: 70\n   s1: 0\n   s2: 0\n   h1: 1\n   h2: 2\n   h4: 3\n   h3: 4`;
+  const lines = [
+    'proxies:',
+    '- name: "WARP"',
+    '  type: wireguard',
+    `  private-key: ${p.privateKey}`,
+    `  server: ${server}`,
+    `  port: ${port}`,
+    `  ip: ${p.v4}`,
+  ];
+  // ipv6 when the option is on AND the record has v6 — same rule as the
+  // worker's renderClash (audit fix: the legacy builder dropped it entirely).
+  if (p.includeIPv6 && p.v6) lines.push(`  ipv6: ${p.v6}`);
+  lines.push(
+    `  public-key: ${p.publicKey}`,
+    `  allowed-ips: ['0.0.0.0/0']`, // legacy parity — site mode ignored
+    `  reserved: [${reservedToCSV(p.reserved)}]`,
+    '  udp: true',
+    '  mtu: 1280',
+    '  remote-dns-resolve: true',
+    `  dns: [${p.dns}]`,
+    '  amnezia-wg-option:',
+    // Canonical WARP template — H3 = underload = 3, H4 = transport = 4
+    // (audit fix: the legacy builder had h4: 3 / h3: 4 swapped). Legacy
+    // parity: the generator seam has no AWG record, so the values are the
+    // fixed WARP defaults (the worker renderClash reads the stored record
+    // instead — same values for the DEFAULT_AWG record).
+    '   jc: 4',
+    '   jmin: 40',
+    '   jmax: 70',
+    '   s1: 0',
+    '   s2: 0',
+    '   h1: 1',
+    '   h2: 2',
+    '   h3: 3',
+    '   h4: 4',
+  );
+  return lines.join('\n');
 }
 
 function buildNekoray(p) {
@@ -407,9 +446,9 @@ export class GeneratorError extends Error {
 
 /**
  * The single-config generation seam. Pure: no fetch, no env, no KV — the
- * account record (ACCOUNT KV, read by the caller) is passed in. Mirrors the
- * legacy per-request flow (api-handler.js, retired with ticket 09) with the
- * registration step removed: the private key, peer public key, v4/v6
+ * account record (snapshot entry, read by the caller) is passed in. Mirrors
+ * the legacy per-request flow (api-handler.js, retired with ticket 09) with
+ * the registration step removed: the private key, peer public key, v4/v6
  * addresses and reserved bytes come from the stored record — never from
  * api.cloudflareclient.com.
  *
@@ -423,7 +462,10 @@ export class GeneratorError extends Error {
  * → siteMode forced to 'all', services dropped (the page mirrors it).
  *
  * Format parity quirks kept byte-identical to the legacy builders:
- *  - clash hardcodes `allowed-ips: ['0.0.0.0/0']` (site mode ignored)
+ *  - clash hardcodes `allowed-ips: ['0.0.0.0/0']` (site mode ignored) and
+ *    the canonical WARP amnezia-wg-option template (H3=3/H4=4; the seam has
+ *    no AWG record), plus `ipv6:` emitted when IPv6 is on and the record has
+ *    v6 (audit fix — matches the worker renderClash)
  *  - husi hardcodes persistent_keepalive_interval 600
  *  - wiresock `Id` = masking domain (`Ip = quic`); the custom I1 domain is
  *    reused as the mask domain like the legacy handler did
@@ -500,15 +542,15 @@ function json(data, status = 200) {
 }
 
 /**
- * POST /api/generator — the gated generator route (ticket 09). Reads the
- * stored account from the ACCOUNT KV binding (readAccount — the same
- * validation every subscription route uses), renders from it and answers in
- * the legacy /api/generate response shape ({ success, content:
- * { configBase64, qrCodeBase64, configFormat, fileName } }) so nothing
- * consuming that contract breaks. NEVER touches the network — no /reg, no
- * enableWarp (ADR 0002). Missing/corrupt account → 503 with a readable
- * message; unknown format → 400 (legacy message); any other failure → 500
- * with the legacy `Error: ${message}` wrapping.
+ * POST /api/generator — the gated generator route (ticket 09; accountId
+ * support lands with ticket 04). Reads the state snapshot and renders from
+ * the first stored account (or the accountId from the request body when
+ * present), answering in the legacy /api/generate response shape
+ * ({ success, content: { configBase64, qrCodeBase64, configFormat,
+ * fileName } }) so nothing consuming that contract breaks. NEVER touches the
+ * network — no /reg, no enableWarp (ADR 0002). Missing/corrupt account →
+ * 503 with a readable message; unknown format → 400 (legacy message); any
+ * other failure → 500 with the legacy `Error: ${message}` wrapping.
  */
 export async function handleGeneratePost(request, env) {
   if (request.method !== 'POST') {
@@ -525,7 +567,11 @@ export async function handleGeneratePost(request, env) {
   }
   if (!body || typeof body !== 'object' || Array.isArray(body)) body = {};
   try {
-    const account = await readAccount(env.ACCOUNT); // null when the binding/record is absent
+    const state = await readState(env.STATE); // null when the binding/record is absent
+    const target = typeof body.accountId === 'string'
+      ? (state?.accounts.find((a) => a.id === body.accountId) || null)
+      : (state?.accounts[0] || null);
+    const account = target || null;
     const content = await renderGeneratedConfig(account, body);
     return json({ success: true, content });
   } catch (err) {

@@ -16,21 +16,18 @@
 #   3. PASSWORD secret   hidden prompt (min 12 chars, confirm), then
 #                        `wrangler secret put PASSWORD` — value piped on
 #                        stdin, never argv, never echoed; zeroed on exit
-#   4. SUB_PATH secret   auto-generated URL-safe token or manual entry;
-#                        secret put; then prints the credential exactly
-#                        once with the subscription URL shapes
-#   5. KV namespaces     ACCOUNT / ENDPOINTS / AWG — reuses existing
+#   4. KV namespaces     STATE / ENDPOINTS / AWG — reuses existing
 #                        namespaces by title (idempotent re-runs +
 #                        dashboard-created ones), creates what's missing,
 #                        prints the ids
-#   6. wrangler.jsonc    backup → wrangler.jsonc.bak, then uncomment+fill
+#   5. wrangler.jsonc    backup → wrangler.jsonc.bak, then uncomment+fill
 #                        the commented vars + kv_namespaces placeholders
 #                        in place via an embedded node script; everything
 #                        else byte-for-byte; node missing → prints the
 #                        exact snippet to copy-paste
-#   7. wrangler deploy   uploads worker + ./out assets; on failure prints
+#   6. wrangler deploy   uploads worker + ./out assets; on failure prints
 #                        `wrangler dev` diagnostics
-#   8. Smoke suite       11 curl checks against the live worker — each
+#   7. Smoke suite       13 curl checks against the live worker — each
 #                        prints PASS/FAIL, stops on the first failure
 #
 # Dashboard fallbacks (when you dislike CLI JSON):
@@ -40,7 +37,7 @@
 #   - secrets:  dash.cloudflare.com → Workers & Pages → warp →
 #               Settings → Variables and Secrets → Add binding (encrypted)
 #   - KV ids:   Workers & Pages → KV → open the namespace → copy the ID;
-#               namespaces titled ACCOUNT/ENDPOINTS/AWG are picked up
+#               namespaces titled STATE/ENDPOINTS/AWG are picked up
 #               automatically by the wizard
 #
 # Requires: bash ≥ 4, wrangler ≥ 3.x, curl; jq and node optional
@@ -60,7 +57,7 @@ else
   BOLD=""; DIM=""; RESET=""; BLUE=""; GREEN=""; YELLOW=""; RED=""
 fi
 
-TOTAL_STAGES=8
+TOTAL_STAGES=7
 _STAGE=0
 
 _clear() { [[ -t 1 ]] || return 0; tput clear 2>/dev/null || printf '\033[2J\033[3J\033[H'; }
@@ -93,8 +90,7 @@ smoke_bad() { printf '      %sFAIL%s  %s\n' "$RED" "$RESET" "$1"; printf '      
 # Secrets/scratch must never outlive the run (Ctrl-C included).
 TMPD=""
 PASSWORD=""
-SUB_PATH=""
-cleanup() { PASSWORD=""; SUB_PATH=""; [[ -n "$TMPD" ]] && rm -rf "$TMPD"; }
+cleanup() { PASSWORD=""; [[ -n "$TMPD" ]] && rm -rf "$TMPD"; }
 trap cleanup EXIT
 
 # ──────────────────────────────────────────────────────────────────────
@@ -256,65 +252,23 @@ printf '%s' "$PASSWORD" | wrangler secret put PASSWORD \
   || die "'wrangler secret put PASSWORD' failed — is wrangler logged in? (dashboard fallback: Variables and Secrets → Add binding)"
 step "PASSWORD stored as an encrypted secret (value not echoed)"
 
-# ── Stage 4 · SUB_PATH secret ──────────────────────────────────────────
-stage "Subscription token (SUB_PATH secret)"
-say "The subscription URLs' unguessable path segment — the path IS the"
-say "credential (ADR 0006): anyone holding it can fetch your configs."
-# Dashboard fallback: same place as PASSWORD, name SUB_PATH.
-printf '  %sAuto-generate a random URL-safe token?%s [Y/n] ' "$YELLOW" "$RESET"
-read -r _auto || true
-if [[ -z "${_auto:-}" || "$_auto" =~ ^[Yy] ]]; then
-  raw=$({ openssl rand -base64 32 2>/dev/null || head -c 32 /dev/urandom | base64 2>/dev/null; } | tr -d '\n' || true)
-  [[ -n "$raw" ]] || die "could not generate randomness (openssl AND /dev/urandom both failed)"
-  SUB_PATH=$(printf '%s' "$raw" | tr '+/' '-_' | tr -d '=')   # URL-safe base64
-  note "generated a ${#SUB_PATH}-char URL-safe token"
-else
-  while :; do
-    printf '  %sPaste your token (min 12 chars; URL-safe: A–Z a–z 0–9 . _ ~ -):%s ' "$BOLD" "$RESET"
-    read -rs SUB_PATH
-    printf '\n'
-    if [[ ${#SUB_PATH} -lt 12 ]]; then warn "too short (${#SUB_PATH} chars)"; continue; fi
-    if ! [[ "$SUB_PATH" =~ ^[A-Za-z0-9._~-]+$ ]]; then
-      warn "contains characters that break URLs — stick to A–Z a–z 0–9 . _ ~ -"
-      continue
-    fi
-    break
-  done
-fi
-
-printf '%s' "$SUB_PATH" | wrangler secret put SUB_PATH \
-  || die "'wrangler secret put SUB_PATH' failed — is wrangler logged in?"
-step "SUB_PATH stored as an encrypted secret"
-
-# Print the credential exactly once — it is NOT recoverable afterwards.
-printf '\n  %sSAVE THIS — it IS the subscription credential. Anyone holding it\n  can download your configs. Do not share it, do not paste it into chat.%s\n' "$YELLOW" "$RESET"
-printf '  %sSUB_PATH = %s%s\n' "$BOLD" "$SUB_PATH" "$RESET"
-printf '\n  Subscription URL shapes (the worker host appears after deploy):\n'
-printf '    https://<worker>/api/%s/sub\n'        "$SUB_PATH"
-printf '    https://<worker>/api/%s/sub/clash\n'  "$SUB_PATH"
-printf '    https://<worker>/api/%s/sub/neko\n'   "$SUB_PATH"
-printf '    https://<worker>/api/%s/sub/wg\n'     "$SUB_PATH"
-printf '    https://<worker>/api/%s/sub/awg\n'    "$SUB_PATH"
-printf '    https://<worker>/api/%s/sub/singbox\n' "$SUB_PATH"
-pause
-
-# ── Stage 5 · KV namespaces ────────────────────────────────────────────
-stage "KV namespaces (ACCOUNT / ENDPOINTS / AWG)"
-say "Three KV namespaces hold the panel state: the WARP account record,"
-say "the endpoint list, and the AmneziaWG settings. Created once; re-runs"
-say "reuse the existing namespaces by title."
+# ── Stage 4 · KV namespaces ────────────────────────────────────────────
+stage "KV namespaces (STATE / ENDPOINTS / AWG)"
+say "Three KV namespaces hold the panel state: the state snapshot (WARP"
+say "account records + subscriptions), the endpoint list, and the AmneziaWG"
+say "settings. Created once; re-runs reuse the existing namespaces by title."
 # Dashboard fallback: Workers & Pages → KV → create a namespace, then copy
 # its ID from the namespace page. Any title works, but naming it
-# ACCOUNT/ENDPOINTS/AWG lets this wizard find it on re-runs.
+# STATE/ENDPOINTS/AWG lets this wizard find it on re-runs.
 
-KV_ACCOUNT=$(kv_create ACCOUNT)
-step "ACCOUNT   = $KV_ACCOUNT"
+KV_STATE=$(kv_create STATE)
+step "STATE     = $KV_STATE"
 KV_ENDPOINTS=$(kv_create ENDPOINTS)
 step "ENDPOINTS = $KV_ENDPOINTS"
 KV_AWG=$(kv_create AWG)
 step "AWG       = $KV_AWG"
 
-# ── Stage 6 · patch wrangler.jsonc ─────────────────────────────────────
+# ── Stage 5 · patch wrangler.jsonc ─────────────────────────────────────
 stage "Patch wrangler.jsonc"
 CFG=wrangler.jsonc
 say "Uncommenting and filling the vars + kv_namespaces placeholders in"
@@ -326,24 +280,23 @@ note "The file is git-tracked: do NOT commit the patched values."
 
 if command -v node >/dev/null 2>&1; then
   cp "$CFG" "$CFG.bak"
-  if ! WRP_CFG_FILE="$CFG" WRP_PASSWORD="$PASSWORD" WRP_SUB_PATH="$SUB_PATH" \
-       WRP_KV_ACCOUNT="$KV_ACCOUNT" WRP_KV_ENDPOINTS="$KV_ENDPOINTS" WRP_KV_AWG="$KV_AWG" \
+  if ! WRP_CFG_FILE="$CFG" WRP_PASSWORD="$PASSWORD" \
+       WRP_KV_STATE="$KV_STATE" WRP_KV_ENDPOINTS="$KV_ENDPOINTS" WRP_KV_AWG="$KV_AWG" \
        node <<'NODE'
 'use strict';
 // In-place patch of the wrangler.jsonc placeholders (see the file's
-// commented PASSWORD/SUB_PATH vars block and ACCOUNT/ENDPOINTS/AWG
-// kv_namespaces block). Values arrive via env — never argv. Only the two
-// placeholder regions are touched; everything else is preserved
-// byte-for-byte. Safe to re-run: already-patched shapes are matched too.
+// commented PASSWORD vars block and STATE/ENDPOINTS/AWG kv_namespaces
+// block). Values arrive via env — never argv. Only the two placeholder
+// regions are touched; everything else is preserved byte-for-byte. Safe
+// to re-run: already-patched shapes are matched too.
 const fs = require('fs');
 const file = process.env.WRP_CFG_FILE;
 const json = (s) => JSON.stringify(String(s));
 const varsVals = {
   PASSWORD: json(process.env.WRP_PASSWORD),
-  SUB_PATH: json(process.env.WRP_SUB_PATH),
 };
 const kvs = [
-  { binding: 'ACCOUNT',   id: json(process.env.WRP_KV_ACCOUNT) },
+  { binding: 'STATE',     id: json(process.env.WRP_KV_STATE) },
   { binding: 'ENDPOINTS', id: json(process.env.WRP_KV_ENDPOINTS) },
   { binding: 'AWG',       id: json(process.env.WRP_KV_AWG) },
 ];
@@ -357,7 +310,7 @@ for (let i = 0; i < lines.length; i++) {
   if (m) { varsI = i; varsIndent = m[1]; break; }
 }
 if (varsI < 0) { console.error('[deploy wizard] "vars" placeholder line not found in ' + file); process.exit(2); }
-lines[varsI] = `${varsIndent}"vars": { "PASSWORD": ${varsVals.PASSWORD}, "SUB_PATH": ${varsVals.SUB_PATH} },`;
+lines[varsI] = `${varsIndent}"vars": { "PASSWORD": ${varsVals.PASSWORD} },`;
 
 // 2) kv_namespaces — the commented placeholder block, or the block from a
 //    previous run. Replaced in full with the three live bindings.
@@ -407,10 +360,10 @@ else
 
 Replace the commented placeholder lines ("vars" and "kv_namespaces") with:
 
-  "vars": { "PASSWORD": "<the password you entered>", "SUB_PATH": "$SUB_PATH" },
+  "vars": { "PASSWORD": "<the password you entered>" },
 
   "kv_namespaces": [
-    { "binding": "ACCOUNT", "id": "$KV_ACCOUNT" },
+    { "binding": "STATE", "id": "$KV_STATE" },
     { "binding": "ENDPOINTS", "id": "$KV_ENDPOINTS" },
     { "binding": "AWG", "id": "$KV_AWG" }
   ],
@@ -424,7 +377,7 @@ grep -qE '^[[:space:]]*"vars": \{' "$CFG" || die "wrangler.jsonc still lacks an 
 step "wrangler.jsonc patched (backup: $CFG.bak — restore with: cp $CFG.bak $CFG)"
 warn "wrangler.jsonc now contains real values — do not commit it; delete $CFG.bak once verified"
 
-# ── Stage 7 · deploy ───────────────────────────────────────────────────
+# ── Stage 6 · deploy ───────────────────────────────────────────────────
 stage "Deploy (wrangler deploy)"
 say "Uploading the worker and the ./out assets to Cloudflare."
 deploy_out=$(wrangler deploy 2>&1 || true)
@@ -436,8 +389,7 @@ Deploy failed. Diagnose locally before retrying — the wizard is idempotent:
   CLOUDFLARE_WORKERS=1 npm run build   # if out/ was missing
   wrangler dev                         # local preview: open the printed
                                        # URL, watch the worker console
-                                       # (env.PASSWORD/SUB_PATH + KV
-                                       # bindings load?)
+                                       # (env.PASSWORD + KV bindings load?)
 HINT
   die "wrangler deploy failed (see output above)"
 fi
@@ -456,12 +408,12 @@ TMPD=$(mktemp -d)
 # Session cookie jar — kept under $HOME (chmod 600) for post-wizard use.
 COOKIE_JAR="$HOME/.warp-panel.cookies"
 rm -f "$COOKIE_JAR"
-say "11 checks against the live worker — each prints PASS/FAIL; the run"
+say "13 checks against the live worker — each prints PASS/FAIL; the run"
 say "stops on the first failure."
 
 hdr() { printf '\n  %s[%s]%s %s\n' "$BOLD" "$1" "$RESET" "$2"; }
 
-hdr "1/11" "anon GET / → 200 login page"
+hdr "1/13" "anon GET / → 200 login page"
 code=$(curl -sS -o "$TMPD/root.html" -w '%{http_code}' "$WORKER_BASE/" 2>/dev/null || true)
 if [[ "$code" == "200" ]] && grep -qF 'Sign in to manage the subscription panel' "$TMPD/root.html" 2>/dev/null; then
   smoke_ok "login page served (marker found)"
@@ -469,20 +421,20 @@ else
   smoke_bad "GET / → $code (wanted 200 + login marker)" "is the worker deployed? open $WORKER_BASE in a browser"
 fi
 
-hdr "2/11" "anon GET /api/account → 401"
-code=$(curl -sS -o "$TMPD/anon.json" -w '%{http_code}' "$WORKER_BASE/api/account" 2>/dev/null || true)
+hdr "2/13" "anon GET /api/accounts → 401"
+code=$(curl -sS -o "$TMPD/anon.json" -w '%{http_code}' "$WORKER_BASE/api/accounts" 2>/dev/null || true)
 [[ "$code" == "401" ]] \
-  || smoke_bad "GET /api/account (anon) → $code (wanted 401)" "the auth gate must 401 every /api/* — is the PASSWORD secret set?"
+  || smoke_bad "GET /api/accounts (anon) → $code (wanted 401)" "the auth gate must 401 every /api/* — is the PASSWORD secret set?"
 smoke_ok "401 JSON"
 
-hdr "3/11" "wrong token GET /api/<wrong>/sub → 404 (never 401)"
+hdr "3/13" "wrong token GET /api/<wrong>/sub → 404 (never 401)"
 wrong="wrong-$(head -c 9 /dev/urandom | base64 | tr -d '+/=' | tr -d '\n')"
 code=$(curl -sS -o /dev/null -w '%{http_code}' "$WORKER_BASE/api/$wrong/sub" 2>/dev/null || true)
 [[ "$code" == "404" ]] \
-  || smoke_bad "GET /api/$wrong/sub → $code (wanted 404)" "wrong SUB_PATH tokens must 404, never 401 (ADR 0006)"
+  || smoke_bad "GET /api/$wrong/sub → $code (wanted 404)" "unknown path tokens must 404, never 401 (ADR 0006)"
 smoke_ok "404 for wrong token"
 
-hdr "4/11" "POST /api/auth/login (PASSWORD) → 200 + session cookie"
+hdr "4/13" "POST /api/auth/login (PASSWORD) → 200 + session cookie"
 code=$(curl -sS -L -c "$COOKIE_JAR" --data-urlencode "password=$PASSWORD" -o "$TMPD/after-login.html" -w '%{http_code}' "$WORKER_BASE/api/auth/login" 2>/dev/null || true)
 if [[ "$code" == "200" ]] && grep -q $'\twarp_session\t' "$COOKIE_JAR" 2>/dev/null; then
   chmod 600 "$COOKIE_JAR"
@@ -491,26 +443,26 @@ else
   smoke_bad "login → $code, 'warp_session' cookie missing" "PASSWORD secret wrong/missing — check Variables and Secrets in the dashboard"
 fi
 
-hdr "5/11" "cookie GET /api/account → 200 JSON"
-code=$(curl -sS -b "$COOKIE_JAR" -o "$TMPD/account.json" -w '%{http_code}' "$WORKER_BASE/api/account" 2>/dev/null || true)
-if [[ "$code" == "200" ]] && grep -q '"success": true' "$TMPD/account.json" 2>/dev/null; then
-  smoke_ok "account card state readable"
+hdr "5/13" "cookie GET /api/accounts → 200 JSON"
+code=$(curl -sS -b "$COOKIE_JAR" -o "$TMPD/accounts.json" -w '%{http_code}' "$WORKER_BASE/api/accounts" 2>/dev/null || true)
+if [[ "$code" == "200" ]] && grep -q '"success": true' "$TMPD/accounts.json" 2>/dev/null; then
+  smoke_ok "accounts card state readable"
 else
-  smoke_bad "GET /api/account (authed) → $code (wanted 200 JSON)" "session cookie rejected — login again? (see auth.js issueSession)"
+  smoke_bad "GET /api/accounts (authed) → $code (wanted 200 JSON)" "session cookie rejected — login again? (see auth.js issueSession)"
 fi
 
-hdr "6/11" "cookie POST /api/account/register → 200 (or readable 429)"
-code=$(curl -sS -b "$COOKIE_JAR" -X POST -o "$TMPD/register.json" -w '%{http_code}' "$WORKER_BASE/api/account/register" 2>/dev/null || true)
+hdr "6/13" "cookie POST /api/accounts/register → 200 (or readable 429)"
+code=$(curl -sS -b "$COOKIE_JAR" -X POST -o "$TMPD/register.json" -w '%{http_code}' "$WORKER_BASE/api/accounts/register" 2>/dev/null || true)
 if [[ "$code" == "200" ]]; then
   smoke_ok "fresh WARP account registered"
 elif [[ "$code" == "429" ]]; then
   smoke_ok "429 — registration is IP-rate-limited; use the panel's Import card with an existing WARP account"
-  note "  the subscription checks below need a stored account — they may 503 until one exists"
+  note "  the pin/sub checks below need a stored account — they may stay unpinned until one exists"
 else
   smoke_bad "register → $code ($(head -c 200 "$TMPD/register.json" 2>/dev/null || true))" "see the panel's account card / rate limits reset after a while"
 fi
 
-hdr "7/11" "cookie GET /api/settings → 200 with endpoints + awg fields"
+hdr "7/13" "cookie GET /api/settings → 200 with endpoints + awg fields"
 code=$(curl -sS -b "$COOKIE_JAR" -o "$TMPD/settings.json" -w '%{http_code}' "$WORKER_BASE/api/settings" 2>/dev/null || true)
 if [[ "$code" == "200" ]] && grep -q '"endpoints"' "$TMPD/settings.json" 2>/dev/null && grep -q '"awg"' "$TMPD/settings.json" 2>/dev/null; then
   smoke_ok "settings feed readable (endpoints + awg)"
@@ -518,11 +470,36 @@ else
   smoke_bad "GET /api/settings → $code (wanted 200 with endpoints/awg)" "ENDPOINTS/AWG bindings missing? see docs/ops/deploy.md → troubleshooting"
 fi
 
-hdr "8/11" "real-token GET /api/<SUB_PATH>/sub → 200 base64 wireguard:// list"
-code=$(curl -sS -o "$TMPD/sub.b64" -w '%{http_code}' "$WORKER_BASE/api/$SUB_PATH/sub" 2>/dev/null || true)
-[[ "$code" == "503" ]] \
-  && smoke_bad "503 — no WARP account stored" "open $WORKER_BASE, Register (or Import) an account, then re-run the wizard"
-[[ "$code" == "200" ]] || smoke_bad "GET /api/$SUB_PATH/sub → $code (wanted 200)" "token wrong (rotated?) or the worker is broken"
+hdr "8/13" "cookie POST /api/subs → 200, per-sub token returned once"
+code=$(curl -sS -b "$COOKIE_JAR" -H 'Content-Type: application/json' -d '{"name":"deploy smoke"}' -o "$TMPD/subs.json" -w '%{http_code}' "$WORKER_BASE/api/subs" 2>/dev/null || true)
+if [[ "$code" == "200" ]] && grep -q '"token"' "$TMPD/subs.json" 2>/dev/null; then
+  SUB_TOKEN=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$TMPD/subs.json" | head -1)
+  SUB_ID=$(sed -n 's/.*"sub":{"id":"\([^"]*\)".*/\1/p' "$TMPD/subs.json" | head -1)
+  smoke_ok "subscription created (token shown once in the response)"
+else
+  smoke_bad "POST /api/subs → $code (wanted 200 with a token)" "see the panel's Subscriptions card"
+fi
+
+hdr "9/13" "cookie POST /api/subs/<id>/pin → 200 (or note when no account)"
+ACCOUNT_ID=$(sed -n 's/.*"accounts":\[{"id":"\([^"]*\)".*/\1/p' "$TMPD/accounts.json" 2>/dev/null | head -1)
+if [[ -n "$ACCOUNT_ID" ]]; then
+  code=$(curl -sS -b "$COOKIE_JAR" -H 'Content-Type: application/json' -d "{\"accountId\":\"$ACCOUNT_ID\"}" -o "$TMPD/pin.json" -w '%{http_code}' "$WORKER_BASE/api/subs/$SUB_ID/pin" 2>/dev/null || true)
+  if [[ "$code" == "200" ]]; then
+    smoke_ok "sub pinned to account $ACCOUNT_ID"
+  else
+    smoke_bad "pin → $code ($(head -c 200 "$TMPD/pin.json" 2>/dev/null || true))" "see the panel's Subscriptions card"
+  fi
+else
+  smoke_ok "no account stored — pin skipped (checks 10-12 will 503; register/import one, then re-run)"
+  note "  sub stays unpinned: GET /api/<token>/sub → 503 'No WARP account registered yet'"
+fi
+
+hdr "10/13" "token GET /api/<token>/sub → 200 base64 wireguard:// list"
+code=$(curl -sS -o "$TMPD/sub.b64" -w '%{http_code}' "$WORKER_BASE/api/$SUB_TOKEN/sub" 2>/dev/null || true)
+if [[ "$code" == "503" ]]; then
+  smoke_bad "503 — sub is unpinned" "register/import an account in the panel, pin the sub, then re-run the wizard"
+fi
+[[ "$code" == "200" ]] || smoke_bad "GET /api/$SUB_TOKEN/sub → $code (wanted 200)" "token wrong or the worker is broken"
 payload=$(cat "$TMPD/sub.b64")
 [[ "$payload" == base64:* ]] && payload=${payload#base64:}   # tolerate an optional base64: prefix
 if { printf '%s' "$payload" | base64 --decode > "$TMPD/sub.txt" 2>/dev/null \
@@ -530,24 +507,24 @@ if { printf '%s' "$payload" | base64 --decode > "$TMPD/sub.txt" 2>/dev/null \
 if grep -q 'wireguard://' "$TMPD/sub.txt" 2>/dev/null; then
   smoke_ok "decodes to $(grep -c 'wireguard://' "$TMPD/sub.txt") wireguard:// link(s)"
 else
-  smoke_bad "body does not decode to wireguard:// lines" "account registered? ACCOUNT binding set? see docs/ops/deploy.md → troubleshooting"
+  smoke_bad "body does not decode to wireguard:// lines" "account pinned? STATE binding set? see docs/ops/deploy.md → troubleshooting"
 fi
 
-hdr "9/11" "real-token GET /api/<SUB_PATH>/sub/clash → 200 YAML"
-code=$(curl -sS -o "$TMPD/clash.yaml" -w '%{http_code}' "$WORKER_BASE/api/$SUB_PATH/sub/clash" 2>/dev/null || true)
-[[ "$code" == "503" ]] && smoke_bad "503 — no WARP account stored (see check 6)"
+hdr "11/13" "token GET /api/<token>/sub/clash → 200 YAML"
+code=$(curl -sS -o "$TMPD/clash.yaml" -w '%{http_code}' "$WORKER_BASE/api/$SUB_TOKEN/sub/clash" 2>/dev/null || true)
+[[ "$code" == "503" ]] && smoke_bad "503 — sub is unpinned (see check 9)"
 { [[ "$code" == "200" ]] && grep -q 'proxies:' "$TMPD/clash.yaml" 2>/dev/null; } \
   && smoke_ok "clash YAML served (proxies: found)" \
-  || smoke_bad "sub/clash → $code (wanted 200 YAML with 'proxies:')" "account missing (503) or renderer error — docs/ops/deploy.md → troubleshooting"
+  || smoke_bad "sub/clash → $code (wanted 200 YAML with 'proxies:')" "account unpinned (503) or renderer error — docs/ops/deploy.md → troubleshooting"
 
-hdr "10/11" "real-token GET /api/<SUB_PATH>/sub/wg → 200 ZIP"
-code=$(curl -sS -o "$TMPD/wg.zip" -w '%{http_code}' "$WORKER_BASE/api/$SUB_PATH/sub/wg" 2>/dev/null || true)
+hdr "12/13" "token GET /api/<token>/sub/wg → 200 ZIP"
+code=$(curl -sS -o "$TMPD/wg.zip" -w '%{http_code}' "$WORKER_BASE/api/$SUB_TOKEN/sub/wg" 2>/dev/null || true)
 magic=$(od -An -tx1 -N4 "$TMPD/wg.zip" 2>/dev/null | tr -d ' \n' || true)
 { [[ "$code" == "200" ]] && [[ "$magic" == "504b0304" ]]; } \
   && smoke_ok "zip served (PK\\x03\\x04 magic)" \
   || smoke_bad "sub/wg → $code (wanted 200 ZIP, PK magic)" "see docs/ops/deploy.md → troubleshooting"
 
-hdr "11/11" "cookie POST /api/account/logout → 200"
+hdr "13/13" "cookie POST /api/auth/logout → 200"
 code=$(curl -sS -L -b "$COOKIE_JAR" -X POST -o /dev/null -w '%{http_code}' "$WORKER_BASE/api/auth/logout" 2>/dev/null || true)
 [[ "$code" == "200" ]] \
   && smoke_ok "logout ok" \
@@ -556,15 +533,11 @@ code=$(curl -sS -L -b "$COOKIE_JAR" -X POST -o /dev/null -w '%{http_code}' "$WOR
 # ── Summary ────────────────────────────────────────────────────────────
 _clear
 printf '\n%s%s  %sDeploy verified — your panel is live%s\n' "$BOLD" "$GREEN" "" "$RESET"
-printf '  Panel:        %s\n' "$WORKER_BASE"
-printf '  Sub (v2rayN): %s/api/%s/sub\n'        "$WORKER_BASE" "$SUB_PATH"
-printf '  Sub (clash):  %s/api/%s/sub/clash\n'  "$WORKER_BASE" "$SUB_PATH"
-printf '  Sub (neko):   %s/api/%s/sub/neko\n'   "$WORKER_BASE" "$SUB_PATH"
-printf '  Sub (wg zip): %s/api/%s/sub/wg\n'     "$WORKER_BASE" "$SUB_PATH"
-printf '  Sub (awg):    %s/api/%s/sub/awg\n'    "$WORKER_BASE" "$SUB_PATH"
-printf '  Sub (sbox):   %s/api/%s/sub/singbox\n' "$WORKER_BASE" "$SUB_PATH"
+printf '  Panel:         %s\n' "$WORKER_BASE"
+printf '  Subscription:  %s/api/%s/sub (created by this run — token shown once)\n' "$WORKER_BASE" "$SUB_TOKEN"
 printf '\n  %sRemember%s\n' "$YELLOW" "$RESET"
-printf '  %s•%s SUB_PATH printed above is the subscription credential — keep it private\n' "$BLUE" "$RESET"
+printf '  %s•%s subscription links live in the panel: Subscriptions card → create (the raw\n' "$BLUE" "$RESET"
+printf '    token + all six URLs are shown exactly once; tokens are hashed at rest)\n'
 printf '  %s•%s session cookie kept at %s (chmod 600)\n' "$BLUE" "$RESET" "$COOKIE_JAR"
 printf '  %s•%s wrangler.jsonc now contains real values — do NOT commit it\n' "$BLUE" "$RESET"
 printf '  %s•%s delete wrangler.jsonc.bak once you trust the patched config\n' "$BLUE" "$RESET"

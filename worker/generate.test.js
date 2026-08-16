@@ -125,10 +125,22 @@ test('clash: allowed-ips hardcoded to 0.0.0.0/0 + reserved CSV (legacy parity)',
   assert.ok(text.includes(`  private-key: ${ACCOUNT.privateKey}`));
   assert.ok(text.includes('  server: 162.159.192.1\n  port: 2408'));
   assert.ok(text.includes(`  ip: ${ACCOUNT.v4}`));
+  assert.ok(text.includes(`  ipv6: ${ACCOUNT.v6}`)); // ipv6 emitted when the option is on + record has v6 (audit fix)
   assert.ok(text.includes("  allowed-ips: ['0.0.0.0/0']")); // ignores site mode — parity quirk
   assert.ok(text.includes('  reserved: [83, 128, 39]')); // CSV form
   assert.ok(text.includes('  mtu: 1280'));
   assert.ok(text.includes('  dns: [1.1.1.1, 1.0.0.1, 2606:4700:4700::1111, 2606:4700:4700::1001]')); // buildDnsLine order
+  assert.ok(text.includes('   h3: 3\n   h4: 4')); // canonical H3=underload=3, H4=transport=4 (audit fix)
+  assert.ok(!text.includes('h4: 3\n   h3: 4'), 'the old swapped h4:3/h3:4 form is gone');
+});
+
+test('clash: ipv6 line only when includeIPv6 AND the record has v6', async () => {
+  const with6 = decodeConfig(await renderGeneratedConfig(ACCOUNT, { configFormat: 'clash', endpoint: ENDPOINT, ipv6: true }));
+  assert.ok(with6.includes(`  ipv6: ${ACCOUNT.v6}`));
+  const no6 = decodeConfig(await renderGeneratedConfig(ACCOUNT, { configFormat: 'clash', endpoint: ENDPOINT, ipv6: false }));
+  assert.ok(!no6.includes('  ipv6:'));
+  const min = decodeConfig(await renderGeneratedConfig(ACCOUNT_MIN, { configFormat: 'clash', endpoint: ENDPOINT }));
+  assert.ok(!min.includes('  ipv6:'), 'no ipv6 line when the record has no v6');
 });
 
 test('nekoray: sing-box wireguard outbound JSON from the record', async () => {
@@ -323,6 +335,12 @@ function makeKv(value) {
   return { get: async () => (value === undefined ? null : (typeof value === 'string' ? value : JSON.stringify(value))) };
 }
 
+/** A KV value in the ticket-01 state-snapshot shape (what readState reads). */
+function makeStateKv(accounts) {
+  const entries = accounts.map((a, i) => ({ id: 'acct-' + (i + 1), label: 'Account ' + (i + 1), ...a }));
+  return makeKv({ schema: 1, revision: 1, accounts: entries, subs: [] });
+}
+
 function jsonBody(obj) {
   return new Request('http://panel.local/api/generator', {
     method: 'POST',
@@ -347,7 +365,7 @@ function installNoNetworkStub() {
 test('handler: generation makes zero network calls (stored account only)', async () => {
   const restore = installNoNetworkStub();
   try {
-    const res = await handleGeneratePost(jsonBody({ configFormat: 'wireguard', endpoint: ENDPOINT }), { ACCOUNT: makeKv(ACCOUNT) });
+    const res = await handleGeneratePost(jsonBody({ configFormat: 'wireguard', endpoint: ENDPOINT }), { STATE: makeStateKv([ACCOUNT]) });
     assert.equal(res.status, 200);
     const data = await res.json();
     assert.equal(data.success, true);
@@ -363,7 +381,7 @@ test('handler: all 7 formats round-trip through the route', async () => {
   const restore = installNoNetworkStub();
   try {
     for (const f of FORMATS) {
-      const res = await handleGeneratePost(jsonBody({ configFormat: f.id, endpoint: ENDPOINT }), { ACCOUNT: makeKv(ACCOUNT) });
+      const res = await handleGeneratePost(jsonBody({ configFormat: f.id, endpoint: ENDPOINT }), { STATE: makeStateKv([ACCOUNT]) });
       assert.equal(res.status, 200, f.id);
       const data = await res.json();
       assert.equal(data.success, true, f.id);
@@ -376,12 +394,35 @@ test('handler: all 7 formats round-trip through the route', async () => {
   }
 });
 
+test('handler: accountId picks the right account; unknown id → 503', async () => {
+  const second = { ...ACCOUNT, v4: '172.16.0.9', privateKey: Buffer.alloc(32, 0x42).toString('base64') };
+  const env = { STATE: makeStateKv([ACCOUNT, second]) };
+  const restore = installNoNetworkStub();
+  try {
+    const first = await handleGeneratePost(jsonBody({ configFormat: 'wireguard' }), env);
+    const firstText = decodeConfig((await first.json()).content);
+    assert.ok(firstText.includes(ACCOUNT.v4), 'defaults to the first stored account');
+    assert.ok(!firstText.includes('172.16.0.9'), 'does not leak the second account');
+
+    const picked = await handleGeneratePost(jsonBody({ configFormat: 'wireguard', accountId: 'acct-2' }), env);
+    const pickedText = decodeConfig((await picked.json()).content);
+    assert.ok(pickedText.includes('172.16.0.9'), 'accountId picks that account');
+    assert.ok(!pickedText.includes(ACCOUNT.v4), 'does not leak the first account');
+
+    const unknown = await handleGeneratePost(jsonBody({ configFormat: 'wireguard', accountId: 'nope' }), env);
+    assert.equal(unknown.status, 503);
+  } finally {
+    const calls = restore();
+    assert.deepEqual(calls, [], 'no network calls during any generation');
+  }
+});
+
 test('handler: missing or corrupt account → 503 with a readable message', async () => {
   for (const env of [
-    { ACCOUNT: undefined },
-    { ACCOUNT: makeKv(undefined) },
-    { ACCOUNT: makeKv('not json') },
-    { ACCOUNT: makeKv({ privateKey: '' }) },
+    { STATE: undefined },
+    { STATE: makeKv(undefined) },
+    { STATE: makeKv('not json') },
+    { STATE: makeKv({ privateKey: '' }) },
   ]) {
     const res = await handleGeneratePost(jsonBody({ configFormat: 'wireguard' }), env);
     assert.equal(res.status, 503);
@@ -392,7 +433,7 @@ test('handler: missing or corrupt account → 503 with a readable message', asyn
 });
 
 test('handler: unknown format → 400, bad body → 500, wrong method → 405', async () => {
-  const env = { ACCOUNT: makeKv(ACCOUNT) };
+  const env = { STATE: makeStateKv([ACCOUNT]) };
   const badFormat = await handleGeneratePost(jsonBody({ configFormat: 'nope' }), env);
   assert.equal(badFormat.status, 400);
   assert.equal((await badFormat.json()).message, 'Unknown format: nope');
@@ -412,8 +453,7 @@ const SESSION = (async () => `warp_session=${await issueSession(SECRET)}`)();
 function workerEnv(accountValue) {
   return {
     PASSWORD: SECRET,
-    SUB_PATH: 'tok',
-    ACCOUNT: makeKv(accountValue),
+    STATE: makeStateKv([accountValue]),
     ENDPOINTS: makeKv({ text: '162.159.192.1:2408\nengage.cloudflareclient.com:2408' }),
     AWG: makeKv(null),
     ASSETS: { fetch: async () => new Response('not found', { status: 404 }) },

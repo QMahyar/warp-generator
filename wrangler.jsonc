@@ -22,29 +22,23 @@
   // `--var PASSWORD:<value>` to `wrangler dev`.
   // "vars": { "PASSWORD": "local-dev-change-me" }
 
-  // SUB_PATH — subscription path token (ticket 04). The path IS the
-  // credential (ADR 0006): GET /api/<SUB_PATH>/sub needs no session, and
-  // wrong/missing tokens get a 404. Production: `wrangler secret put
-  // SUB_PATH` (long random string, e.g. a 32+ byte hex/base64 value).
-  // Local dev: add it to the vars block above, e.g.
-  //   "SUB_PATH": "local-dev-change-me"
-
   // KV namespaces — created by the deploy wizard / manual steps; the ids
   // are not secrets (they only identify the namespaces in this account).
   "kv_namespaces": [
-    { "binding": "ACCOUNT", "id": "dd968069c1f64ed09b17233d31302616" },
+    { "binding": "STATE", "id": "dd968069c1f64ed09b17233d31302616" },
     { "binding": "ENDPOINTS", "id": "c052247a79a14bb589c5ecdcd38a60f1" },
     { "binding": "AWG", "id": "7a1593d28342440b9ecbf360c3a173f2" }
   ],
 
-  // ACCOUNT — KV binding holding the WARP account record (ticket 02),
-  // written only by the panel's Register/Rotate actions.
-  // Production: `wrangler kv namespace create ACCOUNT`, then bind its id:
+  // STATE — KV binding holding the state snapshot: the WARP account
+  // records + the subscriptions (accounts + subs + revision, key "state").
+  // Written only by the panel's accounts/subs actions.
+  // Production: `wrangler kv namespace create STATE`, then bind its id:
   // "kv_namespaces": [
-  //   { "binding": "ACCOUNT", "id": "<namespace-id>" }
+  //   { "binding": "STATE", "id": "<namespace-id>" }
   // ],
   // Local dev: same binding shape with a local namespace id, or use
-  // `--kv ACCOUNT:<namespace-id>` with `wrangler dev`.
+  // `--kv STATE:<namespace-id>` with `wrangler dev`.
 
   // ENDPOINTS / AWG — KV bindings holding the panel settings (ticket 03):
   // the endpoint list (key "endpoints") and the AmneziaWG toggle + params

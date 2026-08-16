@@ -62,7 +62,7 @@ const GOLDEN_WG_LINK =
   'wireguard://4Xt2vFqq91XsVPAkP1TaW4hcGeGEbODynYWlX47RJkQ%3D@162.159.192.1:2408/' +
   '?publickey=bmXOC%2BF1FxEMF9dyiK2H5%2F1SUtzH0JuVo51h2wPfgyo%3D' +
   '&address=172.16.0.2%2F32%2C2606%3A4700%3A110%3A82ce%3Aa1b2%3Ac3d4%3Ae5f6%3Aa7b8%2F128' +
-  '&mtu=1280#162.159.192.1%3A2408';
+  '&mtu=1280&reserved=U4An#162.159.192.1%3A2408';
 
 /** Golden Throne wg:// link for ACCOUNT_A × 162.159.192.1:2408 (legacy parity). */
 const GOLDEN_THRONE_LINK =
@@ -90,6 +90,7 @@ function parseWireguardLink(link) {
     publickey: u.searchParams.get('publickey'),
     address: u.searchParams.get('address'),
     mtu: u.searchParams.get('mtu'),
+    reserved: u.searchParams.get('reserved'),
     fragment: decodeURIComponent(u.hash.slice(1)),
   };
 }
@@ -109,7 +110,7 @@ test('wireguard:// link is byte-identical to the §2.1 golden shape', () => {
   assert.equal(Buffer.from(body, 'base64').toString('utf8'), GOLDEN_WG_LINK);
 });
 
-test('wireguard:// link fields decode per §2.1 (userinfo=privkey, publickey, address, mtu, fragment=endpoint)', () => {
+test('wireguard:// link fields decode per §2.1 (userinfo=privkey, publickey, address, mtu, reserved, fragment=endpoint)', () => {
   const link = buildWireguardLink(ACCOUNT_A, ENDPOINTS[0]);
   const p = parseWireguardLink(link);
   assert.equal(p.username, ACCOUNT_A.privateKey);
@@ -117,6 +118,7 @@ test('wireguard:// link fields decode per §2.1 (userinfo=privkey, publickey, ad
   assert.equal(p.publickey, ACCOUNT_A.peerPublicKey);
   assert.equal(p.address, '172.16.0.2/32,2606:4700:110:82ce:a1b2:c3d4:e5f6:a7b8/128');
   assert.equal(p.mtu, '1280');
+  assert.equal(p.reserved, ACCOUNT_A.reserved); // base64 of the client id, passed through
   assert.equal(p.fragment, '162.159.192.1:2408');
 });
 
@@ -135,6 +137,19 @@ test('IPv6 endpoint renders bracketed in the authority and percent-encoded in th
 test('address drops the v6 CIDR when the record has no v6', () => {
   const p = parseWireguardLink(buildWireguardLink(ACCOUNT_B, ENDPOINTS[0]));
   assert.equal(p.address, '172.16.0.3/32');
+});
+
+test('wireguard:// reserved= is always present and valid base64 (empty record → [0,0,0] → "AAAA")', () => {
+  for (const [account, expected] of [
+    [ACCOUNT_A, 'U4An'], // record base64, round-tripped through the bytes
+    [ACCOUNT_B, 'AAAA'], // empty reserved → [0,0,0] → base64 "AAAA"
+    [{ ...ACCOUNT_B, reserved: 'AAAA' }, 'AAAA'], // "AAAA" → [0,0,0] → "AAAA"
+  ]) {
+    const p = parseWireguardLink(buildWireguardLink(account, ENDPOINTS[0]));
+    assert.match(p.reserved, /^[A-Za-z0-9+/]+={0,2}$/, 'base64 alphabet');
+    assert.equal(p.reserved, expected);
+    assert.equal(Buffer.from(p.reserved, 'base64').length, 3, 'decodes to the 3 WARP reserved bytes');
+  }
 });
 
 test('private key is url-encoded in userinfo ("=" → %3D, "+" → %2B, "/" → %2F)', () => {

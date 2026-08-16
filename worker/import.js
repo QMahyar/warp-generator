@@ -19,18 +19,21 @@
  *     array / base64 string). Either the `{result:{...}}` wrapper or the
  *     unwrapped result object is accepted.
  *
- * Both parse to the same ACCOUNT KV record as Register/Rotate (see
- * account.js) plus source:'import', verified and verifiedAt. Soft
- * verification: imports carrying BOTH a client id and a token are checked
- * against Cloudflare's `GET /reg/<id>` (same base URL family, okhttp UA and
- * 10 s timeout as registerClient). 2xx → verified, anything else (HTTP
- * rejection, network error, timeout) → failed — the verdict is stored and
- * the card shows it; a failed check NEVER blocks the store. Conf-only
- * imports have no credentials: stored unverified, no network call.
+ * Both parse to the same record shape as Register/Rotate (see account.js)
+ * plus source:'import', verified and verifiedAt — and since ticket 01 the
+ * flow does NOT write KV: the caller (worker/index.js) splices the returned
+ * record into the state snapshot (append for a new account, replace for an
+ * existing slot). Soft verification: imports carrying BOTH a client id and a
+ * token are checked against Cloudflare's `GET /reg/<id>` (same base URL
+ * family, okhttp UA and 10 s timeout as registerClient). 2xx → verified,
+ * anything else (HTTP rejection, network error, timeout) → failed — the
+ * verdict is stored and the card shows it; a failed check NEVER blocks the
+ * store. Conf-only imports have no credentials: stored unverified, no
+ * network call.
  */
 
 import { Buffer } from 'buffer';
-import { AccountError, writeAccount } from './account.js';
+import { AccountError } from './account.js';
 
 const CF_BASE = 'https://api.cloudflareclient.com/v0i1909051800';
 const CF_HEADERS = { 'User-Agent': 'okhttp/3.12.1' };
@@ -277,10 +280,10 @@ export async function verifyAccountCredentials({ clientId, token, now = () => Da
 // ---- record building + import flow ----
 
 /**
- * The ACCOUNT KV record for an import — same shape as Register/Rotate plus
+ * The record for an import — same shape as Register/Rotate plus
  * source:'import', verified/verifiedAt. Missing fields default:
  * clientId/token → null, reserved → '' (renderers derive [0,0,0]),
- * registeredAt → the import time.
+ * registeredAt → the import time. Callers splice it into the snapshot.
  */
 export function buildImportRecord(material, { now = () => Date.now() } = {}) {
   return {
@@ -299,18 +302,17 @@ export function buildImportRecord(material, { now = () => Date.now() } = {}) {
 }
 
 /**
- * The full Import flow: parse (auto-detect) → record → soft verify (only
- * when credentials exist; never throws) → KV write. The write happens
- * strictly after parse + verification succeed — a failed import (parse
- * error, missing binding) throws and leaves the existing account untouched.
- * Returns { record, verdict }.
+ * The full Import flow, without the KV write: parse (auto-detect) → record →
+ * soft verify (only when credentials exist; never throws). The CALLER splices
+ * the returned record into the state snapshot (append for a new account,
+ * replace for an existing slot — ticket 01). Returns { record, verdict }.
+ * Parse errors throw and leave the caller's store untouched.
  */
-export async function importAccount(binding, text, { now = () => Date.now() } = {}) {
+export async function importAccountRecord(text, { now = () => Date.now() } = {}) {
   const material = parseImportText(text);
   const record = buildImportRecord(material, { now });
   const verdict = await verifyAccountCredentials({ clientId: record.clientId, token: record.token, now });
   record.verified = verdict.verified;
   record.verifiedAt = verdict.verifiedAt;
-  await writeAccount(binding, record); // strictly after parse (+ verify)
   return { record, verdict };
 }

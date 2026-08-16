@@ -10,21 +10,21 @@
  *                           enableWarp response (private key, client id,
  *                           token, peer pubkey, v4/v6, reserved,
  *                           registeredAt).
- *   - read/write/deleteAccount — thin helpers over the `ACCOUNT` KV binding
- *                           (JSON record under key "account").
+ *   - registrationWaitMs   — the ~8 s spacing guard between /reg calls.
  *   - describeAccountError — maps thrown errors to operator-readable messages.
  *
- * Record shape (the ACCOUNT KV value; ticket 10 added source/verified/verifiedAt
- * and made clientId/token nullable for credential-less conf imports):
+ * Record shape (one entry of the state snapshot's accounts[]; ticket 10
+ * added source/verified/verifiedAt and made clientId/token nullable for
+ * credential-less conf imports):
  *   { privateKey, clientId|null, token|null, peerPublicKey, v4, v6,
  *     reserved, source: 'register'|'import', verified: boolean,
  *     verifiedAt: ISO|null, registeredAt }
  *
- * Write ordering contract: the panel's Register/Rotate/Import handlers
- * (worker/index.js) call the account/import module first and writeAccount()
- * only when parse (+ optional verification) succeeded — a failed action
- * leaves KV untouched. Nothing else in the worker writes the account;
- * subscription routes only read it.
+ * Write ordering contract (ticket 01): the accounts API handlers
+ * (worker/index.js) call registerAccount()/importAccountRecord() first and
+ * mutateState() only when the Cloudflare calls (or import parse + optional
+ * verification) succeeded — a failed action leaves the snapshot untouched.
+ * Nothing here writes KV.
  *
  * Environment notes:
  *   - `Buffer` comes from the 'buffer' module (worker bundle under
@@ -37,10 +37,8 @@
 
 import { Buffer } from 'buffer';
 
-export const ACCOUNT_KV_KEY = 'account';
-
-const CF_BASE = 'https://api.cloudflareclient.com/v0i1909051800';
-const CF_HEADERS = { 'User-Agent': 'okhttp/3.12.1', 'Content-Type': 'application/json' };
+const CF_BASE = 'https://api.cloudflareclient.com/v0a1922';
+const CF_HEADERS = { 'User-Agent': 'okhttp/3.12.1', 'Content-Type': 'application/json', 'CF-Client-Version': 'a-6.3-1922' };
 const CF_TIMEOUT_MS = 10000; // keep: same 10 s ceiling as the legacy handler
 
 /** Errors thrown by this module always carry a human-readable message. */
@@ -117,9 +115,9 @@ export async function enableWarp(clientId, token) {
 
 /**
  * Snapshot the account material out of the enableWarp response. This record
- * IS what gets stored in the ACCOUNT KV binding and what subscription
- * renderers consume. Throws AccountError with a readable message when the
- * response does not carry the expected shape.
+ * IS what gets stored as one entry of the state snapshot and what
+ * subscription renderers consume. Throws AccountError with a readable
+ * message when the response does not carry the expected shape.
  */
 export function extractAccountRecord(warp, keypair, { clientId, token, now = () => Date.now() } = {}) {
   const result = warp && warp.result;
@@ -197,37 +195,14 @@ export function publicAccount(record) {
   };
 }
 
-// ---- KV helpers (binding injected; fake-friendly for tests) ----
+// ---- Registration spacing (ticket 01; /reg rate-limits per IP) ----
 
-/** Read the stored account; null when absent, corrupt or malformed. */
-export async function readAccount(binding) {
-  if (!binding) return null;
-  const raw = await binding.get(ACCOUNT_KV_KEY);
-  if (!raw) return null;
-  try {
-    const record = JSON.parse(raw);
-    return isValidAccountRecord(record) ? record : null;
-  } catch {
-    return null;
-  }
-}
+const REG_SPACING_MS = 8000; // live probes: ~8 s spacing avoids dropped requests
 
-/** Fail fast when the ACCOUNT binding is not configured (before network). */
-export function assertAccountBinding(binding) {
-  if (!binding) {
-    throw new AccountError('ACCOUNT KV binding is missing — add a kv_namespaces entry named ACCOUNT (see wrangler.jsonc).');
-  }
-}
-
-/** Persist the account record. Call ONLY after the registration succeeded. */
-export async function writeAccount(binding, record) {
-  assertAccountBinding(binding);
-  await binding.put(ACCOUNT_KV_KEY, JSON.stringify(record));
-}
-
-export async function deleteAccount(binding) {
-  if (!binding) return;
-  await binding.delete(ACCOUNT_KV_KEY);
+/** Milliseconds to wait before the next /reg call, 0 when none needed. */
+export function registrationWaitMs(lastRegAt, now = Date.now()) {
+  if (!lastRegAt) return 0;
+  return Math.max(0, REG_SPACING_MS - (now - lastRegAt));
 }
 
 // ---- Error mapping ----
@@ -245,7 +220,7 @@ export function describeAccountError(err) {
 
 /**
  * The full Register/Rotate flow: fresh keypair → /reg → enable WARP → record.
- * Returns the account record; callers persist it with writeAccount().
+ * Returns the account record; callers splice it into the state snapshot.
  */
 export async function registerAccount({ now = () => Date.now() } = {}) {
   const keypair = await generateKeyPair();

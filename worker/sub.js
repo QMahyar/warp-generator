@@ -39,8 +39,9 @@
  *   opts.scheme = 'wireguard' (default)  — one v2rayN-family `wireguard://`
  *     link per valid endpoint: private key in userinfo (url-encoded),
  *     `publickey` / `address` (v4[+v6] CIDRs from the account record) / `mtu`
- *     in the query, fragment = the endpoint. Payload shape per
- *     docs/research/sub-formats.md §2.1 (WireguardFmt.cs; juerson sample).
+ *     / `reserved` (base64 of the WARP client id) in the query, fragment =
+ *     the endpoint. Payload shape per docs/research/sub-formats.md §2.1
+ *     (WireguardFmt.cs; juerson sample).
  *
  *   opts.scheme = 'wg'                   — Throne-style `wg://` links: the
  *     legacy buildThrone line shape from worker/api-handler.js, replicated
@@ -119,19 +120,28 @@ function clientAddresses(account) {
 
 /**
  * One v2rayN `wireguard://` link per endpoint:
- *   wireguard://<private-key>@<host>[:port]/?publickey=<b64>&address=<cidrs>&mtu=1280#<endpoint>
- * Private key in userinfo; publickey / address / mtu in the query; fragment
- * is the endpoint (the client's remark). Everything but the authority is
- * url-encoded, exactly like the §2.1 sample (`/`→%2F, `+`→%2B, `=`→%3D,
- * `,`→%2C, `:`→%3A).
+ *   wireguard://<private-key>@<host>[:port]/?publickey=<b64>&address=<cidrs>&mtu=1280&reserved=<b64>#<endpoint>
+ * Private key in userinfo; publickey / address / mtu / reserved in the query;
+ * fragment is the endpoint (the client's remark). Everything but the
+ * authority is url-encoded, exactly like the §2.1 sample (`/`→%2F, `+`→%2B,
+ * `=`→%3D, `,`→%2C, `:`→%3A).
+ *
+ * `reserved` is the base64 WARP client id — v2rayN's WireguardFmt parses it
+ * and WARP rejects the handshake without it (audit fix: the param was
+ * missing). Same bytes the other renderers derive from the record: the
+ * record's base64 when set, else the [0,0,0] → "AAAA" convention (see
+ * reservedToBytes) — re-encoded through the bytes so the query value is
+ * always valid base64.
  */
 export function buildWireguardLink(account, ep) {
   const authority = authorityOf(ep);
+  const reserved = Buffer.from(reservedToBytes(account.reserved)).toString('base64');
   return (
     `wireguard://${encodeURIComponent(account.privateKey)}@${authority}/` +
     `?publickey=${encodeURIComponent(account.peerPublicKey)}` +
     `&address=${encodeURIComponent(clientAddresses(account))}` +
     `&mtu=${SUB_MTU}` +
+    `&reserved=${encodeURIComponent(reserved)}` +
     `#${encodeURIComponent(authority)}`
   );
 }

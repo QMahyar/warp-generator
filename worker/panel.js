@@ -13,6 +13,9 @@
  * lists are embedded from worker/generate.js (FORMATS, DNS_PROVIDERS,
  * SERVICES); the community-DNS "all sites" rule and the 503 missing-account
  * message are mirrored in the page.
+ * Ticket 04 adds the account picker: the card lists the stored accounts
+ * (fed by /api/accounts) and sends accountId when a specific one is chosen;
+ * the default option keeps the first-account behaviour.
  *
  * No JS framework, no external assets, no build step. All styling is one
  * inline <style> block; the shell's logout is a plain form POST. Dynamic
@@ -25,39 +28,6 @@ import { DNS_PROVIDERS, FORMATS, I1_MASKS, SERVICES } from './generate.js';
 // our own constant registries, so building them into the shell is safe.
 const FORMAT_OPTIONS = FORMATS.map((f) => `<option value="${f.id}">${f.name}</option>`).join('\n');
 const DNS_OPTIONS = DNS_PROVIDERS.map((d) => `<option value="${d.id}">${d.label}${d.isCommunity ? ' •' : ''}</option>`).join('\n');
-
-/** HTML-escape a value embedded in the shell (defensive: SUB_PATH is operator-set). */
-function esc(value) {
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-/**
- * The six subscription rows (tickets 04–08) rendered into the Subscriptions
- * card — absolute URLs the operator copies into clients. The token in the
- * path IS the credential (ADR 0006), so the card warns about sharing.
- * Empty subPath → an explainer row instead of links.
- */
-function subscriptionList(origin, subPath) {
-  if (!subPath) {
-    return `<div class="error">The SUB_PATH secret is not set — run <code>wrangler secret put SUB_PATH</code> with a long random string, then redeploy. Until then no subscription URL exists.</div>`;
-  }
-  const base = `${origin}/api/${subPath}/sub`;
-  const rows = [
-    ['v2rayN family', 'wireguard:// links', base],
-    ['Throne', 'wg:// links', `${base}?scheme=wg`],
-    ['Clash', 'YAML proxy list', `${base}/clash`],
-    ['sing-box', 'JSON profile', `${base}/singbox`],
-    ['NekoBox desktop', 'nekoray:// links', `${base}/neko`],
-    ['WireGuard app', 'zip of .conf files', `${base}/wg`],
-    ['awg:// clients (LxBox, INCY)', 'awg:// links', `${base}/awg`],
-  ];
-  return rows.map(([name, desc, url]) => `
-    <li>
-      <span class="sub-name">${esc(name)}<small>${esc(desc)}</small></span>
-      <code>${esc(url)}</code>
-      <button type="button" class="sub-copy" data-copy="${esc(url)}">Copy</button>
-    </li>`).join('\n');
-}
 
 function page(title, body) {
   return `<!doctype html>
@@ -192,12 +162,49 @@ function page(title, body) {
   .actions { display: flex; gap: 10px; margin-top: 18px; }
   .actions button { width: auto; margin: 0; flex: 1; }
   .actions button:disabled { opacity: 0.55; cursor: wait; }
-  .actions #account-rotate-button {
+  .account-row {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .account-row .label-row { display: flex; align-items: center; gap: 10px; }
+  .account-row .label-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .account-row .label-row input:hover { border-color: var(--border); }
+  .account-row .label-row input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: transparent;
+    background: #12192b;
+  }
+  .account-row .label-row .badge { flex: 0 0 auto; }
+  .account-row .meta { margin: 8px 0 0; }
+  .account-row .actions { margin-top: 10px; }
+  .account-row .actions button {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 5px 12px;
+    font-size: 12px;
     background: transparent;
     color: var(--accent);
     border: 1px solid var(--accent);
   }
-  .actions #account-rotate-button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .account-row .actions button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .account-row .actions button.danger { color: var(--danger); border-color: var(--danger); }
+  .account-row .actions button.danger:hover { background: rgba(247, 118, 142, 0.08); filter: none; }
+  .account-row .actions button:disabled { opacity: 0.55; cursor: wait; }
+  .account-row textarea { margin-top: 10px; min-height: 70px; }
   textarea {
     width: 100%;
     min-height: 130px;
@@ -267,26 +274,116 @@ function page(title, body) {
   .feed { margin-top: 12px; padding: 6px 10px; border-radius: 8px; font-size: 12px; }
   .feed.ok { color: #9ece6a; background: rgba(158, 206, 106, 0.08); }
   .feed.err { color: var(--danger); background: rgba(247, 118, 142, 0.08); }
-  /* ---- Subscriptions card ---- */
-  .sub-list { list-style: none; margin: 14px 0 0; padding: 0; }
-  .sub-list li {
+  /* ---- Subscriptions card (ticket 02) ---- */
+  .subs-new { margin-top: 14px; }
+  .subs-new input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #12192b;
+    color: var(--text);
+    font-size: 14px;
+  }
+  .subs-new input[type="text"]:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .subs-new .actions { margin-top: 10px; }
+  .subs-new .actions button {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .subs-new .actions button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .subs-new .actions button:disabled { opacity: 0.55; cursor: wait; }
+  #subs-list { list-style: none; margin: 14px 0 0; padding: 0; }
+  .sub-row {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .sub-row .head { display: flex; align-items: center; gap: 10px; }
+  .sub-row .head input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .sub-row .head input:hover { border-color: var(--border); }
+  .sub-row .head input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: transparent;
+    background: #12192b;
+  }
+  .sub-row .head .badge { flex: 0 0 auto; }
+  .subs-pin { margin-top: 10px; }
+  .subs-pin label { margin-bottom: 4px; }
+  .subs-pin select {
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #12192b;
+    color: var(--text);
+    font-size: 13px;
+  }
+  .subs-pin select:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  .sub-row .meta { margin: 8px 0 0; }
+  .sub-row .actions { margin-top: 10px; }
+  .sub-row .actions button {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 5px 12px;
+    font-size: 12px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+  .sub-row .actions button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .sub-row .actions button.danger { color: var(--danger); border-color: var(--danger); }
+  .sub-row .actions button.danger:hover { background: rgba(247, 118, 142, 0.08); filter: none; }
+  .sub-row .actions button:disabled { opacity: 0.55; cursor: wait; }
+  .subs-created {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border: 1px solid rgba(158, 206, 106, 0.4);
+    border-radius: 10px;
+    background: rgba(158, 206, 106, 0.06);
+  }
+  .subs-created .warn { margin: 0; color: var(--danger); font-size: 13px; }
+  .subs-created .token-line { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+  .subs-created .token-line code {
+    display: block;
+    margin-top: 4px;
+    color: var(--accent);
+    font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    overflow-wrap: anywhere;
+  }
+  .subs-created ul { list-style: none; margin: 10px 0 0; padding: 0; }
+  .subs-created li {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 9px 0;
+    gap: 10px;
+    padding: 7px 0;
     border-bottom: 1px solid var(--border);
   }
-  .sub-list li:last-child { border-bottom: 0; }
-  .sub-name { flex: 0 0 170px; font-size: 13px; color: #e8eefc; }
-  .sub-name small { display: block; color: var(--muted); font-size: 11px; }
-  .sub-list code {
+  .subs-created li:last-child { border-bottom: 0; }
+  .subs-created li .lname { flex: 0 0 160px; font-size: 13px; color: #e8eefc; }
+  .subs-created li .lname small { display: block; color: var(--muted); font-size: 11px; }
+  .subs-created li code {
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
     font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     color: var(--accent);
   }
-  .sub-list button {
+  .subs-created li button {
     width: auto;
     margin: 0;
     padding: 5px 12px;
@@ -298,8 +395,18 @@ function page(title, body) {
     cursor: pointer;
     flex: 0 0 auto;
   }
-  .sub-list button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
-  .sub-list button.copied { color: #9ece6a; border-color: rgba(158, 206, 106, 0.4); }
+  .subs-created li button:hover { background: rgba(122, 162, 247, 0.12); filter: none; }
+  .subs-created li button.copied { color: #9ece6a; border-color: rgba(158, 206, 106, 0.4); }
+  .subs-created .actions { margin-top: 10px; }
+  .subs-created .actions button {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 5px 12px;
+    font-size: 12px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
   /* ---- Generator card (ticket 09) ---- */
   .gen-grid {
     display: grid;
@@ -386,13 +493,15 @@ export function loginPage({ error = null } = {}) {
 }
 
 /**
- * Authenticated shell with the account card (ticket 02). The card fetches
- * /api/account on load, and Register/Rotate POST to /api/account/register|
- * rotate; the inline script owns the in-flight state (network ~1-2 s) and
- * error rendering. Framework-less per ADR 0004 — dynamic values are injected
- * via textContent, never innerHTML.
+ * Authenticated shell with the accounts card (ticket 02 → ticket 01). The
+ * card fetches /api/accounts on load; Register/Import-append POST to
+ * /api/accounts/register|import, and per-row actions POST to
+ * /api/accounts/:id/{rotate|import|rename|delete}; the inline script owns
+ * the in-flight state (network ~1-2 s) and error rendering. Framework-less
+ * per ADR 0004 — dynamic values are injected via textContent, never
+ * innerHTML.
  */
-export function panelShell({ origin = '', subPath = '' } = {}) {
+export function panelShell({ origin = '' } = {}) {
   // String.raw: the inline scripts carry regex/string escapes (\d, \n, …)
   // that an ordinary template literal would cook away and break in the
   // browser — keep them byte-exact. ${…} interpolation still works.
@@ -400,7 +509,7 @@ export function panelShell({ origin = '', subPath = '' } = {}) {
 <header>
   <span class="brand">WARP Panel</span>
   <nav>
-    <a href="#account-card" class="active">Account</a>
+    <a href="#accounts-card" class="active">Accounts</a>
     <a href="#endpoints-card">Endpoints</a>
     <a href="#subscriptions-card">Subscriptions</a>
     <a href="#generator-card">Generator</a>
@@ -410,22 +519,23 @@ export function panelShell({ origin = '', subPath = '' } = {}) {
   </form>
 </header>
 <main>
-  <section class="card-panel" id="account-card">
+  <section class="card-panel" id="accounts-card">
     <div class="card-head">
-      <h2>WARP account</h2>
-      <span id="account-status" class="badge">…</span>
+      <h2>WARP accounts</h2>
+      <span id="accounts-status" class="badge">…</span>
     </div>
-    <p id="account-meta" class="meta">Loading account state…</p>
+    <p class="meta">Each account is a separate WARP registration. A subscription is pinned to one account — re-pin or rotate to fail over without touching the other accounts.</p>
+    <div id="accounts-list"></div>
     <div class="actions">
-      <button type="button" id="account-register-button">Register account</button>
-      <button type="button" id="account-rotate-button">Rotate account</button>
+      <button type="button" id="accounts-register-button">Register account</button>
     </div>
-    <textarea id="account-import-input" rows="4" spellcheck="false" placeholder="Paste a WireGuard .conf or the registration JSON from warp-reg — replaces the current account."></textarea>
+    <p class="meta">…or import one registered from your own network (paste a WireGuard .conf or the registration JSON from warp-reg):</p>
+    <textarea id="accounts-import-input" rows="3" spellcheck="false" placeholder="Paste a WireGuard .conf or the registration JSON from warp-reg — adds a new account."></textarea>
     <div class="actions">
-      <button type="button" id="account-import-button">Import account</button>
+      <button type="button" id="accounts-import-button">Import new account</button>
     </div>
-    <p id="account-verdict" class="meta feed" hidden></p>
-    <div id="account-error" class="error" hidden></div>
+    <p id="accounts-verdict" class="meta feed" hidden></p>
+    <div id="accounts-error" class="error" hidden></div>
   </section>
   <section class="card-panel" id="endpoints-card">
     <div class="card-head">
@@ -503,20 +613,32 @@ export function panelShell({ origin = '', subPath = '' } = {}) {
   <section class="card-panel" id="subscriptions-card">
     <div class="card-head">
       <h2>Subscriptions</h2>
-      <span class="badge">${subPath ? '6 formats' : 'Not configured'}</span>
+      <span id="subs-status" class="badge">…</span>
     </div>
-    <p class="meta">One link per client family — paste it into the subscription field of the target app. The token inside the link <strong>is</strong> the credential (no password, ADR 0006): anyone holding a link can fetch it, so share only with people you trust. Links stay stable across account rotations and endpoint edits.</p>
-    <ul class="sub-list">
-${subscriptionList(origin, subPath)}
-    </ul>
+    <p class="meta">One subscription per client family — the token inside its links <strong>is</strong> the credential (no password, ADR 0006): anyone holding a link can fetch it, so share only with people you trust. Links stay stable across re-pins, rotations and endpoint edits.</p>
+    <div class="subs-new">
+      <input type="text" id="subs-name-input" spellcheck="false" maxlength="60" placeholder="Subscription name (e.g. Home)">
+      <div class="actions">
+        <button type="button" id="subs-create-button">New subscription</button>
+      </div>
+    </div>
+    <div id="subs-created" class="subs-created" hidden></div>
+    <ul id="subs-list" class="sub-list"></ul>
+    <div id="subs-error" class="error" hidden></div>
   </section>
   <section class="card-panel" id="generator-card">
     <div class="card-head">
       <h2>Generator</h2>
       <span id="generator-status" class="badge">Single config</span>
     </div>
-    <p class="meta">One config for one client, rendered from the stored account — no new WARP registration happens here.</p>
+    <p class="meta">One config for one client, rendered from the account you pick — no new WARP registration happens here.</p>
     <div class="gen-grid">
+      <div class="gen-field gen-wide">
+        <label for="gen-account">Account</label>
+        <select id="gen-account" disabled>
+          <option value="">First account (default)</option>
+        </select>
+      </div>
       <div class="gen-field">
         <label for="gen-format">Config format</label>
         <select id="gen-format">
@@ -561,7 +683,7 @@ ${DNS_OPTIONS}
     <div class="actions">
       <button type="button" id="gen-generate-button">Generate config</button>
     </div>
-    <p class="meta gen-hint">Needs the account from the <a href="#account-card">account card</a> — if you have not registered or imported one yet, do that first.</p>
+    <p class="meta gen-hint">Needs an account from the <a href="#accounts-card">accounts card</a> — if you have not registered or imported one yet, do that first.</p>
     <p id="gen-feedback" class="meta feed" hidden></p>
     <div id="gen-result" class="gen-result" hidden>
       <p id="gen-result-file" class="meta"></p>
@@ -576,109 +698,226 @@ ${DNS_OPTIONS}
 </main>
 <script>
 (() => {
-  const statusEl = document.getElementById('account-status');
-  const metaEl = document.getElementById('account-meta');
-  const errorEl = document.getElementById('account-error');
-  const registerBtn = document.getElementById('account-register-button');
-  const rotateBtn = document.getElementById('account-rotate-button');
-  const importBtn = document.getElementById('account-import-button');
-  const importInput = document.getElementById('account-import-input');
-  const verdictEl = document.getElementById('account-verdict');
-  const buttons = [registerBtn, rotateBtn, importBtn];
-  const LABELS = {
-    register: ['Register account', 'Registering…'],
-    rotate: ['Rotate account', 'Rotating…'],
-    import: ['Import account', 'Importing…'],
-  };
-  let currentAccount = null; // set by render(); drives the confirm-on-replace
+  // Accounts card (ticket 01): multiple WARP accounts with per-row actions.
+  // Rows are built with createElement / textContent — never innerHTML.
+  // Label edits commit on Enter/blur and revert on failure; every button
+  // disables in flight. Delete warns that pinned subscriptions will 503.
+  const statusEl = document.getElementById('accounts-status');
+  const listEl = document.getElementById('accounts-list');
+  const errorEl = document.getElementById('accounts-error');
+  const registerBtn = document.getElementById('accounts-register-button');
+  const importBtn = document.getElementById('accounts-import-button');
+  const importInput = document.getElementById('accounts-import-input');
+  const verdictEl = document.getElementById('accounts-verdict');
+
+  let accounts = [];
 
   function fmt(dateStr) {
     const d = new Date(dateStr);
     return Number.isNaN(d.getTime()) ? dateStr : d.toLocaleString();
   }
 
-  function render(account) {
-    currentAccount = account || null;
-    verdictEl.hidden = true;
-    if (!account) {
-      statusEl.textContent = 'No account';
+  function metaText(account) {
+    const imported = account.source === 'import';
+    let meta = (imported ? 'Imported ' : 'Registered ') + fmt(account.registeredAt) + ' · ' + (account.v4 || '—');
+    if (imported) {
+      meta += account.verified === true ? ' · Verified with Cloudflare'
+        : account.verifiedAt ? ' · Verification failed — stored anyway'
+        : ' · Unverified (no credentials in the import)';
+    }
+    return meta;
+  }
+
+  function rowActions(account) {
+    const wrap = document.createElement('div');
+    wrap.className = 'actions';
+
+    const rotate = document.createElement('button');
+    rotate.type = 'button';
+    rotate.textContent = 'Rotate';
+    rotate.addEventListener('click', function () { runPerAccount(account.id, 'rotate'); });
+    wrap.appendChild(rotate);
+
+    const toggleImport = document.createElement('button');
+    toggleImport.type = 'button';
+    toggleImport.textContent = 'Import…';
+    const replaceWrap = document.createElement('div');
+    replaceWrap.hidden = true;
+    const replaceInput = document.createElement('textarea');
+    replaceInput.rows = 3;
+    replaceInput.spellcheck = false;
+    replaceInput.placeholder = 'Paste a .conf or registration JSON — replaces this account.';
+    const replaceBtn = document.createElement('button');
+    replaceBtn.type = 'button';
+    replaceBtn.textContent = 'Replace this account';
+    replaceBtn.addEventListener('click', function () {
+      if (!replaceInput.value.trim()) return;
+      if (!window.confirm('Import replaces this account only. Continue?')) return;
+      runPerAccount(account.id, 'import', replaceInput.value);
+    });
+    replaceWrap.appendChild(replaceInput);
+    replaceWrap.appendChild(replaceBtn);
+    toggleImport.addEventListener('click', function () { replaceWrap.hidden = !replaceWrap.hidden; });
+    wrap.appendChild(toggleImport);
+    wrap.appendChild(replaceWrap);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = 'Delete';
+    del.className = 'danger';
+    del.addEventListener('click', function () {
+      const msg = 'Delete account "' + account.label + '"? Any subscription pinned to it will return 503 until re-pinned.';
+      if (window.confirm(msg)) runPerAccount(account.id, 'delete');
+    });
+    wrap.appendChild(del);
+    return wrap;
+  }
+
+  function row(account) {
+    const wrap = document.createElement('div');
+    wrap.className = 'account-row';
+    wrap.dataset.accountId = account.id;
+
+    const labelRow = document.createElement('div');
+    labelRow.className = 'label-row';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = account.label;
+    input.spellcheck = false;
+    input.title = 'Rename — Enter or blur to save';
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') input.blur();
+      else if (e.key === 'Escape') { input.value = account.label; input.blur(); }
+    });
+    input.addEventListener('change', function () {
+      const next = input.value.trim();
+      if (!next || next === account.label) { input.value = account.label; return; }
+      runPerAccount(account.id, 'rename', null, next).catch(function () { input.value = account.label; });
+    });
+    const b = document.createElement('span');
+    b.className = account.source === 'import' ? 'badge' : 'badge ok';
+    b.textContent = account.source === 'import' ? 'Imported' : 'Registered';
+    labelRow.appendChild(input);
+    labelRow.appendChild(b);
+    wrap.appendChild(labelRow);
+
+    const meta = document.createElement('p');
+    meta.className = 'meta';
+    meta.textContent = metaText(account);
+    wrap.appendChild(meta);
+
+    wrap.appendChild(rowActions(account));
+    return wrap;
+  }
+
+  function render() {
+    listEl.textContent = '';
+    if (!accounts.length) {
+      const p = document.createElement('p');
+      p.className = 'meta';
+      p.textContent = 'No WARP accounts yet — register one or import an existing account.';
+      listEl.appendChild(p);
+      statusEl.textContent = 'No accounts';
       statusEl.className = 'badge';
-      metaEl.textContent = 'No WARP account yet. Register one — subscriptions need it.';
-    } else {
-      const imported = account.source === 'import';
-      statusEl.textContent = imported ? 'Imported' : 'Registered';
-      statusEl.className = 'badge ok';
-      let meta = (imported ? 'Imported ' : 'Registered ') + fmt(account.registeredAt) + ' · ' + (account.v4 || '—');
-      if (imported) {
-        meta += account.verified === true ? ' · Verified with Cloudflare'
-          : account.verifiedAt ? ' · Verification failed — stored anyway'
-          : ' · Unverified (no credentials in the import)';
-      }
-      metaEl.textContent = meta;
+      return;
     }
-    errorEl.hidden = true;
+    statusEl.textContent = accounts.length + (accounts.length === 1 ? ' account' : ' accounts');
+    statusEl.className = 'badge ok';
+    accounts.forEach(function (a) { listEl.appendChild(row(a)); });
   }
 
-  function setBusy(busy, active) {
-    buttons.forEach(function (b) { b.disabled = busy; });
-    if (active) {
-      const action = active.id === 'account-register-button' ? 'register' : active.id === 'account-rotate-button' ? 'rotate' : 'import';
-      active.textContent = busy ? LABELS[action][1] : LABELS[action][0];
-    }
-  }
-
-  async function run(action) {
-    const active = action === 'register' ? registerBtn : action === 'rotate' ? rotateBtn : importBtn;
+  async function runPerAccount(id, action, text, label) {
     errorEl.hidden = true;
-    metaEl.textContent = action === 'import'
-      ? 'Importing — parsing and checking against Cloudflare…'
-      : 'Contacting Cloudflare — this takes a couple of seconds…';
-    setBusy(true, active);
+    const path = '/api/accounts/' + encodeURIComponent(id) + '/' + action;
+    const body = action === 'rename' ? { label: label }
+      : action === 'import' ? { text: text }
+      : undefined;
     try {
-      const init = action === 'import'
-        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: importInput.value }) }
-        : { method: 'POST' };
-      const res = await fetch('/api/account/' + action, init);
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
-      render(data.account);
-      if (action === 'import' && data.verdict) {
+      await load();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Unknown error';
+      errorEl.hidden = false;
+    }
+  }
+
+  function setBusy(busy) {
+    registerBtn.disabled = busy;
+    importBtn.disabled = busy;
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('/api/accounts');
+      const data = await res.json().catch(function () { return {}; });
+      accounts = (data && data.accounts) || [];
+    } catch {
+      statusEl.textContent = 'Unavailable';
+      statusEl.className = 'badge err';
+      accounts = [];
+    }
+    render();
+  }
+
+  async function runRegister() {
+    errorEl.hidden = true;
+    setBusy(true);
+    registerBtn.textContent = 'Registering…';
+    try {
+      const res = await fetch('/api/accounts/register', { method: 'POST' });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
+      await load();
+    } catch (err) {
+      errorEl.textContent = err.message || 'Unknown error';
+      errorEl.hidden = false;
+    } finally {
+      setBusy(false);
+      registerBtn.textContent = 'Register account';
+    }
+  }
+
+  async function runImportAppend() {
+    errorEl.hidden = true;
+    if (!importInput.value.trim()) return;
+    setBusy(true);
+    importBtn.textContent = 'Importing…';
+    try {
+      const res = await fetch('/api/accounts/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: importInput.value }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
+      if (data.verdict) {
         verdictEl.textContent = data.verdict.verified
-          ? 'Import stored. Credentials verified against Cloudflare — subscriptions are live.'
+          ? 'Import stored. Credentials verified against Cloudflare — subscriptions using it are live.'
           : data.verdict.verifiedAt
             ? 'Import stored, but verification failed — subscriptions still work; the account may stop connecting.'
             : 'Import stored as unverified (conf-only, no client id/token) — subscriptions still work.';
         verdictEl.hidden = false;
-        importInput.value = '';
       }
+      importInput.value = '';
+      await load();
     } catch (err) {
       errorEl.textContent = err.message || 'Unknown error';
       errorEl.hidden = false;
-      metaEl.textContent = 'Action failed — the stored account was not changed.';
     } finally {
-      setBusy(false, active);
+      setBusy(false);
+      importBtn.textContent = 'Import new account';
     }
   }
 
-  function runImport() {
-    // Two-step replace: the panel confirms before POSTing; the server
-    // replaces on receipt (like Rotate). Confirm only when an account exists.
-    if (currentAccount && !window.confirm('Import replaces the stored account. Continue?')) return;
-    run('import');
-  }
-
-  registerBtn.addEventListener('click', function () { run('register'); });
-  rotateBtn.addEventListener('click', function () { run('rotate'); });
-  importBtn.addEventListener('click', runImport);
-
-  fetch('/api/account')
-    .then(function (r) { return r.json(); })
-    .then(function (data) { render(data.account); })
-    .catch(function () {
-      statusEl.textContent = 'Unavailable';
-      statusEl.className = 'badge err';
-      metaEl.textContent = 'Could not load account state — is the panel configured?';
-    });
+  registerBtn.addEventListener('click', runRegister);
+  importBtn.addEventListener('click', runImportAppend);
+  load();
 })();
 </script>
 <script>
@@ -940,6 +1179,7 @@ ${DNS_OPTIONS}
   const DNS_LIST = ${JSON.stringify(DNS_PROVIDERS)};
 
   const formatEl = document.getElementById('gen-format');
+  const accountEl = document.getElementById('gen-account');
   const deviceEl = document.getElementById('gen-device');
   const endpointEl = document.getElementById('gen-endpoint');
   const dnsEl = document.getElementById('gen-dns');
@@ -1050,21 +1290,23 @@ ${DNS_OPTIONS}
         ? (parseInt(keepaliveEl.value, 10) || 25)
         : null;
       const customI1Domain = i1RowEl.hidden ? '' : i1DomainEl.value.trim();
+      const body = {
+        selectedServices: selectedServices,
+        siteMode: siteModeEl.value,
+        deviceType: deviceEl.value,
+        endpoint: endpoint,
+        configFormat: formatEl.value,
+        dnsId: dnsEl.value,
+        ipv6: ipv6El.checked,
+        excludeLan: excludeLanEl.checked,
+        persistentKeepalive: persistentKeepalive,
+        customI1Domain: customI1Domain,
+      };
+      if (accountEl.value) body.accountId = accountEl.value;
       const res = await fetch('/api/generator', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          selectedServices: selectedServices,
-          siteMode: siteModeEl.value,
-          deviceType: deviceEl.value,
-          endpoint: endpoint,
-          configFormat: formatEl.value,
-          dnsId: dnsEl.value,
-          ipv6: ipv6El.checked,
-          excludeLan: excludeLanEl.checked,
-          persistentKeepalive: persistentKeepalive,
-          customI1Domain: customI1Domain,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(function () { return {}; });
       if (!res.ok || !data.success || !data.content) {
@@ -1108,40 +1350,331 @@ ${DNS_OPTIONS}
   // ---- load current state: endpoints feed the endpoint override default ----
   Promise.all([
     fetch('/api/settings').then(function (r) { return r.json(); }).catch(function () { return {}; }),
-    fetch('/api/account').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+    fetch('/api/accounts').then(function (r) { return r.json(); }).catch(function () { return {}; }),
   ]).then(function (results) {
     const settings = results[0].settings || {};
     if (settings.endpoints && settings.endpoints.text) {
       const first = settings.endpoints.text.split('\n').map(function (l) { return l.trim(); }).filter(Boolean)[0];
       if (first) endpointEl.value = first;
     }
-    const account = results[1].account;
-    if (!account) {
+    const accounts = results[1].accounts || [];
+    accountEl.textContent = '';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'First account (default)';
+    accountEl.appendChild(defaultOpt);
+    if (!accounts.length) {
       statusEl.textContent = 'No account';
       statusEl.className = 'badge err';
       generateBtn.disabled = true;
+      accountEl.disabled = true;
+    } else {
+      accounts.forEach(function (a) {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.label;
+        accountEl.appendChild(opt);
+      });
+      accountEl.disabled = false;
     }
   });
 })();
 </script>
 <script>
 (() => {
-  // Subscriptions card copy buttons — textContent only, no innerHTML.
-  document.querySelectorAll('.sub-copy').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      const url = btn.getAttribute('data-copy');
-      const done = function () {
-        btn.textContent = 'Copied';
-        btn.classList.add('copied');
-        setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
-      };
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(done).catch(done);
-      } else {
-        done(); // no clipboard API — the row stays visible for manual copying
+  // ---- Subs card (ticket 02) ----
+  // Fetches /api/subs + /api/accounts on load. Rows are built with
+  // createElement / textContent — never innerHTML. Creating a subscription
+  // (or resetting its token) returns the raw token + the full link list
+  // exactly once, shown in #subs-created; the list itself only ever shows
+  // the tokenHashPrefix fingerprint.
+  const statusEl = document.getElementById('subs-status');
+  const listEl = document.getElementById('subs-list');
+  const errorEl = document.getElementById('subs-error');
+  const nameInput = document.getElementById('subs-name-input');
+  const createBtn = document.getElementById('subs-create-button');
+  const createdEl = document.getElementById('subs-created');
+
+  let subs = [];
+  let accounts = [];
+
+  function setError(msg) {
+    errorEl.textContent = msg || '';
+    errorEl.hidden = !msg;
+  }
+
+  function accountById(id) {
+    for (let i = 0; i < accounts.length; i++) if (accounts[i].id === id) return accounts[i];
+    return null;
+  }
+
+  function copyText(btn, text) {
+    const done = function () {
+      btn.textContent = 'Copied';
+      btn.classList.add('copied');
+      setTimeout(function () { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(done);
+    } else {
+      done(); // no clipboard API — the row stays visible for manual copying
+    }
+  }
+
+  // One link row inside the once-only panel: name + description + copy button.
+  function linkRow(link) {
+    const li = document.createElement('li');
+    const name = document.createElement('span');
+    name.className = 'lname';
+    name.textContent = link.name;
+    const desc = document.createElement('small');
+    desc.textContent = link.description;
+    name.appendChild(desc);
+    const code = document.createElement('code');
+    code.textContent = link.href;
+    const copy = document.createElement('button');
+    copy.type = 'button';
+    copy.textContent = 'Copy';
+    copy.addEventListener('click', function () { copyText(copy, link.href); });
+    li.appendChild(name);
+    li.appendChild(code);
+    li.appendChild(copy);
+    return li;
+  }
+
+  // Show the raw token + all links exactly once (create / reset-token).
+  function showOnce(sub, heading) {
+    createdEl.textContent = '';
+    const warn = document.createElement('p');
+    warn.className = 'warn';
+    warn.textContent = heading + ' Copy the links and the token now — the token is shown only once; the list below shows just a fingerprint afterwards.';
+    createdEl.appendChild(warn);
+
+    const tokenLine = document.createElement('p');
+    tokenLine.className = 'token-line';
+    tokenLine.textContent = 'Token (the links above already carry it — keep it to rebuild a client manually)';
+    const tokenCode = document.createElement('code');
+    tokenCode.textContent = sub.token;
+    tokenLine.appendChild(tokenCode);
+    createdEl.appendChild(tokenLine);
+
+    const list = document.createElement('ul');
+    sub.links.forEach(function (link) { list.appendChild(linkRow(link)); });
+    createdEl.appendChild(list);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Done';
+    close.addEventListener('click', function () {
+      createdEl.hidden = true;
+      createdEl.textContent = '';
+    });
+    actions.appendChild(close);
+    createdEl.appendChild(actions);
+    createdEl.hidden = false;
+    createdEl.scrollIntoView({ block: 'nearest' });
+  }
+
+  function pinSelect(sub) {
+    const wrap = document.createElement('div');
+    wrap.className = 'subs-pin';
+    const label = document.createElement('label');
+    label.textContent = 'Pinned account';
+    const select = document.createElement('select');
+    select.title = 'Pin this subscription to an account — re-pin anytime, its URL never changes.';
+
+    const unpin = document.createElement('option');
+    unpin.value = '';
+    unpin.textContent = 'Unpinned';
+    select.appendChild(unpin);
+
+    const selected = sub.accountId;
+    const known = accountById(selected);
+    if (selected && !known) {
+      const missing = document.createElement('option');
+      missing.value = selected;
+      missing.textContent = '(deleted account)';
+      select.appendChild(missing);
+    }
+    accounts.forEach(function (a) {
+      const opt = document.createElement('option');
+      opt.value = a.id;
+      opt.textContent = a.label;
+      select.appendChild(opt);
+    });
+    select.value = selected || '';
+    select.addEventListener('change', function () {
+      runSubAction(sub.id, 'pin', { accountId: select.value || null });
+    });
+    wrap.appendChild(label);
+    wrap.appendChild(select);
+    return wrap;
+  }
+
+  function metaText(sub) {
+    const created = new Date(sub.createdAt);
+    const when = Number.isNaN(created.getTime()) ? '' : ' · created ' + created.toLocaleString();
+    if (sub.accountId && sub.accountLabel) return 'Pinned to ' + sub.accountLabel + when;
+    if (sub.accountId) return 'Pinned to a deleted account — returns 503 until re-pinned' + when;
+    return 'Unpinned — returns 503 until an account is pinned' + when;
+  }
+
+  function rowActions(sub) {
+    const wrap = document.createElement('div');
+    wrap.className = 'actions';
+
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.textContent = 'Reset token';
+    reset.addEventListener('click', function () {
+      const msg = 'Reset the token for "' + sub.name + '"? Its old links stop working; the new links are shown only once.';
+      if (window.confirm(msg)) runSubAction(sub.id, 'reset-token', null, true);
+    });
+    wrap.appendChild(reset);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = 'Delete';
+    del.className = 'danger';
+    del.addEventListener('click', function () {
+      if (window.confirm('Delete subscription "' + sub.name + '"? Its links stop working immediately.')) {
+        runSubAction(sub.id, 'delete');
       }
     });
+    wrap.appendChild(del);
+    return wrap;
+  }
+
+  function row(sub) {
+    const wrap = document.createElement('div');
+    wrap.className = 'sub-row';
+    wrap.dataset.subId = sub.id;
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = sub.name;
+    input.spellcheck = false;
+    input.title = 'Rename — Enter or blur to save';
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') input.blur();
+      else if (e.key === 'Escape') { input.value = sub.name; input.blur(); }
+    });
+    input.addEventListener('change', function () {
+      const next = input.value.trim();
+      if (!next || next === sub.name) { input.value = sub.name; return; }
+      runSubAction(sub.id, 'rename', { name: next }).then(function (ok) {
+        if (!ok) input.value = sub.name; // revert on failure
+      });
+    });
+    const fingerprint = document.createElement('span');
+    fingerprint.className = 'badge';
+    fingerprint.title = 'Token fingerprint — the raw token is shown only when you create or reset it.';
+    fingerprint.textContent = sub.tokenHashPrefix;
+    head.appendChild(input);
+    head.appendChild(fingerprint);
+    wrap.appendChild(head);
+
+    wrap.appendChild(pinSelect(sub));
+
+    const meta = document.createElement('p');
+    meta.className = 'meta';
+    meta.textContent = metaText(sub);
+    wrap.appendChild(meta);
+
+    wrap.appendChild(rowActions(sub));
+    return wrap;
+  }
+
+  function render() {
+    listEl.textContent = '';
+    if (!subs.length) {
+      const p = document.createElement('p');
+      p.className = 'meta';
+      p.textContent = 'No subscriptions yet — create one to get links for your clients.';
+      listEl.appendChild(p);
+      statusEl.textContent = 'No subscriptions';
+      statusEl.className = 'badge';
+      return;
+    }
+    statusEl.textContent = subs.length + (subs.length === 1 ? ' subscription' : ' subscriptions');
+    statusEl.className = 'badge ok';
+    subs.forEach(function (s) { listEl.appendChild(row(s)); });
+  }
+
+  function setBusy(busy) {
+    createBtn.disabled = busy;
+    createBtn.textContent = busy ? 'Creating…' : 'New subscription';
+  }
+
+  // Resolves true on success, false on failure (after setting the error box).
+  async function runSubAction(id, action, body, showOnceResult) {
+    setError('');
+    try {
+      const res = await fetch('/api/subs/' + encodeURIComponent(id) + '/' + action, {
+        method: 'POST',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
+      if (showOnceResult && data.sub) showOnce(data.sub, 'Token reset — the old links are retired.');
+      await load();
+      return true;
+    } catch (err) {
+      setError(err.message || 'Unknown error');
+      return false;
+    }
+  }
+
+  async function createSub() {
+    setError('');
+    const name = nameInput.value.trim();
+    if (!name) { setError('Give the subscription a name first.'); return; }
+    setBusy(true);
+    try {
+      const res = await fetch('/api/subs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name }),
+      });
+      const data = await res.json().catch(function () { return {}; });
+      if (!res.ok || !data.success) throw new Error(data.message || ('Request failed (HTTP ' + res.status + ')'));
+      nameInput.value = '';
+      showOnce(data.sub, 'Subscription created — these links are not shown again.');
+      await load();
+    } catch (err) {
+      setError(err.message || 'Unknown error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function load() {
+    try {
+      const results = await Promise.all([
+        fetch('/api/subs').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+        fetch('/api/accounts').then(function (r) { return r.json(); }).catch(function () { return {}; }),
+      ]);
+      subs = results[0].subs || [];
+      accounts = results[1].accounts || [];
+    } catch {
+      statusEl.textContent = 'Unavailable';
+      statusEl.className = 'badge err';
+      subs = [];
+      accounts = [];
+    }
+    render();
+  }
+
+  createBtn.addEventListener('click', createSub);
+  nameInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') createSub();
   });
+  load();
 })();
 </script>
 `);

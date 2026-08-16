@@ -8,17 +8,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACCOUNT_KV_KEY,
   AccountError,
-  deleteAccount,
   describeAccountError,
   enableWarp,
   extractAccountRecord,
   isValidAccountRecord,
   publicAccount,
-  readAccount,
   registerClient,
-  writeAccount,
+  registrationWaitMs,
 } from './account.js';
 
 // ---- canned fixtures (throwaway, never real keys) ----
@@ -132,10 +129,11 @@ test('registerClient POSTs to /reg with the okhttp UA and registration body', as
   const { id, token } = await registerClient('d29ybGQ=');
   assert.equal(id, 'c1');
   assert.equal(token, 't1');
-  assert.ok(captured.url.endsWith('/v0i1909051800/reg'));
+  assert.ok(captured.url.endsWith('/v0a1922/reg'));
   assert.equal(captured.init.method, 'POST');
   assert.equal(captured.init.headers['User-Agent'], 'okhttp/3.12.1');
   assert.equal(captured.init.headers['Content-Type'], 'application/json');
+  assert.equal(captured.init.headers['CF-Client-Version'], 'a-6.3-1922');
   assert.ok(captured.init.signal instanceof AbortSignal);
   assert.equal(captured.init.signal.aborted, false);
   const body = JSON.parse(captured.init.body);
@@ -177,10 +175,11 @@ test('enableWarp PATCHes /reg/:id with the bearer token', async (t) => {
   t.after(restore);
   const data = await enableWarp('client-id-123', 'token-abc');
   assert.equal(data.result.id, 'client-id-123');
-  assert.ok(captured.url.endsWith('/v0i1909051800/reg/client-id-123'));
+  assert.ok(captured.url.endsWith('/v0a1922/reg/client-id-123'));
   assert.equal(captured.init.method, 'PATCH');
   assert.equal(captured.init.headers.Authorization, 'Bearer token-abc');
   assert.equal(captured.init.headers['User-Agent'], 'okhttp/3.12.1');
+  assert.equal(captured.init.headers['CF-Client-Version'], 'a-6.3-1922');
   assert.deepEqual(JSON.parse(captured.init.body), { warp_enabled: true });
 });
 
@@ -242,51 +241,17 @@ test('publicAccount exposes only the card fields — never keys or tokens', () =
   assert.ok(!json.includes('clientId'));
 });
 
-// ---- KV helpers (fake binding) ----
+// ---- registration spacing (pure) ----
 
-function fakeKvBinding() {
-  const map = new Map();
-  return {
-    map,
-    async get(key) { return map.has(key) ? map.get(key) : null; },
-    async put(key, value) { map.set(key, value); },
-    async delete(key) { map.delete(key); },
-  };
-}
-
-test('writeAccount → readAccount roundtrip under the ACCOUNT key', async () => {
-  const kv = fakeKvBinding();
-  const rec = extractDefault();
-  await writeAccount(kv, rec);
-  assert.ok(kv.map.has(ACCOUNT_KV_KEY));
-  assert.deepEqual(JSON.parse(kv.map.get(ACCOUNT_KV_KEY)), rec);
-  const stored = await readAccount(kv);
-  assert.deepEqual(stored, rec);
+test('registrationWaitMs: no cooldown when never registered', () => {
+  assert.equal(registrationWaitMs(0, FIXED_NOW), 0);
+  assert.equal(registrationWaitMs(null, FIXED_NOW), 0);
 });
 
-test('readAccount returns null for empty, corrupt and malformed values', async () => {
-  assert.equal(await readAccount(null), null);
-  assert.equal(await readAccount(fakeKvBinding()), null);
-  const kvEmpty = fakeKvBinding();
-  await kvEmpty.put(ACCOUNT_KV_KEY, '');
-  assert.equal(await readAccount(kvEmpty), null);
-  const kvCorrupt = fakeKvBinding();
-  await kvCorrupt.put(ACCOUNT_KV_KEY, '{not json');
-  assert.equal(await readAccount(kvCorrupt), null);
-  const kvWrongShape = fakeKvBinding();
-  await kvWrongShape.put(ACCOUNT_KV_KEY, JSON.stringify({ hello: 'world' }));
-  assert.equal(await readAccount(kvWrongShape), null);
-});
-
-test('writeAccount throws a readable error when the binding is missing', async () => {
-  await assert.rejects(() => writeAccount(null, extractDefault()),
-    (err) => err instanceof AccountError && /ACCOUNT KV binding is missing/.test(err.message));
-});
-
-test('deleteAccount removes the stored record', async () => {
-  const kv = fakeKvBinding();
-  await writeAccount(kv, extractDefault());
-  await deleteAccount(kv);
-  assert.equal(kv.map.has(ACCOUNT_KV_KEY), false);
-  assert.equal(await readAccount(kv), null);
+test('registrationWaitMs: full cooldown within 8 s, 0 after', () => {
+  assert.equal(registrationWaitMs(FIXED_NOW, FIXED_NOW), 8000);
+  assert.equal(registrationWaitMs(FIXED_NOW, FIXED_NOW + 1000), 7000);
+  assert.equal(registrationWaitMs(FIXED_NOW, FIXED_NOW + 7999), 1);
+  assert.equal(registrationWaitMs(FIXED_NOW, FIXED_NOW + 8000), 0);
+  assert.equal(registrationWaitMs(FIXED_NOW, FIXED_NOW + 30000), 0);
 });

@@ -2,6 +2,9 @@
  * Ticket 10 tests — the import module's pure parts: conf/JSON parsers,
  * auto-detection, record building + validation with the new fields, and the
  * soft verification flow (stubbed global fetch — per ticket 02's pattern).
+ * Since ticket 01, importAccountRecord() does NOT write KV — the caller
+ * splices the returned record into the state snapshot; these tests assert
+ * that no store interaction exists at all.
  * Runs under `node --test` with zero npm dependencies.
  */
 
@@ -12,12 +15,10 @@ import {
   AccountError,
   isValidAccountRecord,
   publicAccount,
-  readAccount,
-  ACCOUNT_KV_KEY,
 } from './account.js';
 import {
   buildImportRecord,
-  importAccount,
+  importAccountRecord,
   parseImportText,
   parseRegistrationJson,
   parseWgConf,
@@ -75,16 +76,6 @@ const WARP_JSON = {
     },
   },
 };
-
-function fakeKvBinding() {
-  const map = new Map();
-  return {
-    map,
-    async get(key) { return map.has(key) ? map.get(key) : null; },
-    async put(key, value) { map.set(key, value); },
-    async delete(key) { map.delete(key); },
-  };
-}
 
 function stubFetch(handler) {
   const original = globalThis.fetch;
@@ -357,88 +348,54 @@ test('verifyAccountCredentials: no credentials → unverified, NO network call',
   assert.equal(called, false);
 });
 
-// ---- importAccount flow (parse → verify → store) ----
+// ---- importAccountRecord flow (parse → verify; NO store — ticket 01) ----
 
-test('importAccount: conf import stores unverified, no network call', async (t) => {
+test('importAccountRecord: conf import yields an unverified record, no network call', async (t) => {
   let cfCalls = 0;
   const restore = stubFetch(async () => { cfCalls++; return new Response('{}'); });
   t.after(restore);
-  const kv = fakeKvBinding();
-  const { record, verdict } = await importAccount(kv, CONF_V4, { now: () => FIXED_NOW });
+  const { record, verdict } = await importAccountRecord(CONF_V4, { now: () => FIXED_NOW });
   assert.equal(cfCalls, 0);
   assert.deepEqual(verdict, { verified: false, verifiedAt: null });
   assert.equal(record.source, 'import');
   assert.equal(record.clientId, null);
-  assert.equal(kv.map.has(ACCOUNT_KV_KEY), true);
-  const stored = await readAccount(kv);
-  assert.deepEqual(stored, record);
-  assert.equal(stored.reserved, '');
+  assert.equal(record.reserved, '');
 });
 
-test('importAccount: json import verifies against CF and stores the record', async (t) => {
+test('importAccountRecord: json import verifies against CF', async (t) => {
   let captured;
   const restore = stubFetch(async (url, init) => { captured = { url: String(url), init }; return new Response('{}', { status: 200 }); });
   t.after(restore);
-  const kv = fakeKvBinding();
-  const { record, verdict } = await importAccount(kv, JSON.stringify(WARP_JSON), { now: () => FIXED_NOW });
+  const { record, verdict } = await importAccountRecord(JSON.stringify(WARP_JSON), { now: () => FIXED_NOW });
   assert.deepEqual(verdict, { verified: true, verifiedAt: '2026-08-15T12:00:00.000Z' });
   assert.equal(record.verified, true);
   assert.equal(record.verifiedAt, '2026-08-15T12:00:00.000Z');
   assert.ok(captured.url.endsWith('/reg/client-id-123'));
-  const stored = await readAccount(kv);
-  assert.equal(stored.clientId, 'client-id-123');
-  assert.equal(stored.token, 'token-abc');
-  assert.equal(stored.reserved, 'QGV1zKUsRS4=');
+  assert.equal(record.clientId, 'client-id-123');
+  assert.equal(record.token, 'token-abc');
+  assert.equal(record.reserved, 'QGV1zKUsRS4=');
 });
 
-test('importAccount: 403 verification still stores (failed verdict)', async (t) => {
+test('importAccountRecord: 403 verification still yields a record (failed verdict)', async (t) => {
   const restore = stubFetch(async () => new Response('nope', { status: 403 }));
   t.after(restore);
-  const kv = fakeKvBinding();
-  const { record } = await importAccount(kv, JSON.stringify(WARP_JSON), { now: () => FIXED_NOW });
+  const { record } = await importAccountRecord(JSON.stringify(WARP_JSON), { now: () => FIXED_NOW });
   assert.equal(record.verified, false);
   assert.equal(record.verifiedAt, '2026-08-15T12:00:00.000Z');
-  const stored = await readAccount(kv);
-  assert.equal(stored.verified, false);
-  assert.equal(stored.clientId, 'client-id-123'); // record persists despite the verdict
+  assert.equal(record.clientId, 'client-id-123'); // record persists despite the verdict
 });
 
-test('importAccount: verification network error still stores (failed verdict, never blocks)', async (t) => {
+test('importAccountRecord: verification network error still yields a record (never blocks)', async (t) => {
   const restore = stubFetch(async () => { throw new TypeError('fetch failed'); });
   t.after(restore);
-  const kv = fakeKvBinding();
-  const { record } = await importAccount(kv, JSON.stringify(WARP_JSON), { now: () => FIXED_NOW });
+  const { record } = await importAccountRecord(JSON.stringify(WARP_JSON), { now: () => FIXED_NOW });
   assert.equal(record.verified, false);
-  const stored = await readAccount(kv);
-  assert.equal(stored.verified, false);
 });
 
-test('importAccount: parse failure throws and leaves the existing account untouched', async (t) => {
+test('importAccountRecord: parse failure throws and never touches any store', async (t) => {
   const restore = stubFetch(async () => new Response('{}'));
   t.after(restore);
-  const kv = fakeKvBinding();
-  await importAccount(kv, CONF_V4); // conf stored first
-  const before = await readAccount(kv);
-  await assert.rejects(() => importAccount(kv, 'hello world'), (err) => err instanceof AccountError);
-  await assert.rejects(() => importAccount(kv, '   '), AccountError);
-  await assert.rejects(() => importAccount(kv, '{not json'), AccountError);
-  const after = await readAccount(kv);
-  assert.deepEqual(after, before); // byte-identical KV
-});
-
-test('importAccount: a second import replaces the stored account (destructive-replace)', async (t) => {
-  const restore = stubFetch(async () => new Response('{}', { status: 200 }));
-  t.after(restore);
-  const kv = fakeKvBinding();
-  const second = CONF_V4.replace('172.16.0.2', '172.16.0.9');
-  await importAccount(kv, CONF_V4);
-  const { record } = await importAccount(kv, second);
-  const stored = await readAccount(kv);
-  assert.equal(stored.v4, '172.16.0.9');
-  assert.equal(stored.registeredAt, record.registeredAt);
-  assert.equal(stored.clientId, null);
-});
-
-test('importAccount: missing binding → readable error before any network', async (t) => {
-  await assert.rejects(() => importAccount(null, CONF_V4), (err) => err instanceof AccountError && /ACCOUNT KV binding is missing/.test(err.message));
+  await assert.rejects(() => importAccountRecord('hello world'), (err) => err instanceof AccountError);
+  await assert.rejects(() => importAccountRecord('   '), AccountError);
+  await assert.rejects(() => importAccountRecord('{not json'), AccountError);
 });
