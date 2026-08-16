@@ -95,7 +95,7 @@ export async function registerClient(publicKey) {
       fcm_token: '', type: 'ios', locale: 'en_US',
     }),
   });
-  const result = data && data.result;
+  const result = (data && data.result) || data;
   if (!result || !result.id || !result.token) {
     throw new AccountError('Cloudflare returned a malformed registration response (missing client id or token).');
   }
@@ -120,7 +120,7 @@ export async function enableWarp(clientId, token) {
  * message when the response does not carry the expected shape.
  */
 export function extractAccountRecord(warp, keypair, { clientId, token, now = () => Date.now() } = {}) {
-  const result = warp && warp.result;
+  const result = (warp && warp.result) || warp;
   const config = result && result.config;
   const peer = config && config.peers && config.peers[0];
   const iface = config && config.interface;

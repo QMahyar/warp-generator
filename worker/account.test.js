@@ -110,6 +110,15 @@ test('extractAccountRecord rejects a non-object warp payload', () => {
   assert.throws(() => extractAccountRecord({ result: {} }, FAKE_KEYPAIR, { clientId: 'c', token: 't' }), AccountError);
 });
 
+test('extractAccountRecord accepts the top-level response shape (live v0a1922)', () => {
+  const record = extractAccountRecord(WARP_RESPONSE.result, FAKE_KEYPAIR, { clientId: 'client-id-123', token: 'token-abc' });
+  assert.equal(record.clientId, 'client-id-123');
+  assert.equal(record.peerPublicKey, 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=');
+  assert.equal(record.v4, '172.16.0.2');
+  assert.equal(record.v6, 'fd01:5ca1:ab1e:82d7:abcd:ef01:2345:6789');
+  assert.equal(record.source, 'register');
+});
+
 // ---- Cloudflare network calls (stubbed fetch) ----
 
 function stubFetch(handler) {
@@ -164,6 +173,14 @@ test('registerClient rejects a response missing result.id/token', async (t) => {
   t.after(restore);
   await assert.rejects(() => registerClient('d29ybGQ='),
     (err) => err instanceof AccountError && /client id or token/.test(err.message));
+});
+
+test('registerClient accepts the top-level id/token shape (live v0a1922)', async (t) => {
+  const restore = stubFetch(async () => Response.json({ id: 'c9', token: 't9' }));
+  t.after(restore);
+  const { id, token } = await registerClient('d29ybGQ=');
+  assert.equal(id, 'c9');
+  assert.equal(token, 't9');
 });
 
 test('enableWarp PATCHes /reg/:id with the bearer token', async (t) => {
