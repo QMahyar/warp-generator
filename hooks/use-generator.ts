@@ -1,56 +1,13 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import type { SiteMode } from '@/types';
 import type { GenerateResult, ApiResponse } from '@/types';
 import { getEndpointValue, isExternalEndpoint } from '@/config/endpoints';
 import { DEFAULT_DNS_ID } from '@/config/dns';
 import type { GeneratorState } from './generator-state';
 import { applyDnsSelection, applyServiceToggle, applySiteMode } from './generator-state';
-
-export function useDebouncedCommit(
-  externalValue: string,
-  onChange: (v: string) => void,
-  delayMs = 300
-): [string, (v: string) => void, () => void] {
-  const [localValue, setLocalValue] = useState(externalValue);
-  const pendingRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!pendingRef.current && externalValue !== localValue) {
-      setLocalValue(externalValue);
-    }
-  }, [externalValue, localValue]);
-
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
-
-  const setValue = useCallback((v: string) => {
-    setLocalValue(v);
-    pendingRef.current = true;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      pendingRef.current = false;
-      onChange(v);
-    }, delayMs);
-  }, [onChange, delayMs]);
-
-  const commitNow = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-    if (pendingRef.current) {
-      pendingRef.current = false;
-      onChange(localValue);
-    }
-  }, [onChange, localValue]);
-
-  return [localValue, setValue, commitNow];
-}
+export { useDebouncedCommit } from './use-debounced-commit';
 
 export function formatApiError(message?: string): string {
   const cleaned = (message ?? '').trim().replace(/^(?:Error\s*:\s*|Generation failed\s*:\s*)+/i, '').trim();
