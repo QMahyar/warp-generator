@@ -1,14 +1,16 @@
 #!/usr/bin/env node
 /**
- * Sync the I1_MASKS list from lib/builders/shared.ts into
- * worker/api-handler.js and functions/api/generate.js.
+ * Sync the I1_MASKS list from lib/builders/shared.ts into the worker's
+ * single generator engine (worker/generate.js). worker/api-handler.js and
+ * functions/api/generate.js were retired with the subscription-panel pivot
+ * — see scripts/build-ip-ranges.mjs header and docs/adr.
  *
  * Source block in lib/builders/shared.ts:
  *   // I1_MASKS:BEGIN
  *   export const I1_MASKS = [ "I1 = <b 0x...>", ... ]
  *   // I1_MASKS:END
  *
- * Target block in both bundles (between the same markers) holds the array
+ * Target block in the bundle (between the same markers) holds the array
  * plus pickI1(), so the random-pick logic is not duplicated by hand.
  *
  * Idempotent: re-running with no list changes produces no diff.
@@ -22,8 +24,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'lib', 'builders', 'shared.ts');
 
 const TARGETS = [
-  join(ROOT, 'worker', 'api-handler.js'),
-  join(ROOT, 'functions', 'api', 'generate.js'),
+  join(ROOT, 'worker', 'generate.js'),
 ];
 
 const BEGIN = '// I1_MASKS:BEGIN';
@@ -49,17 +50,26 @@ function loadMasks() {
   return masks;
 }
 
-function renderBlock(masks) {
+function renderBlock(masks, eol) {
   const lines = [HEADER, 'const I1_MASKS = ['];
   for (const m of masks) lines.push(`  ${JSON.stringify(m)},`);
   lines.push('];');
   lines.push('function pickI1() { return I1_MASKS[Math.floor(Math.random() * I1_MASKS.length)]; }');
   lines.push(END);
-  return lines.join('\n');
+  return lines.join(eol);
 }
 
-function replaceBlock(filePath, block) {
+/** Detect the dominant newline style of a file, defaulting to '\n'. */
+function detectEol(src) {
+  const crlf = (src.match(/\r\n/g) || []).length;
+  const lf = (src.match(/(?<!\r)\n/g) || []).length;
+  return crlf > lf ? '\r\n' : '\n';
+}
+
+function replaceBlock(filePath, masks) {
   const src = readFileSync(filePath, 'utf8');
+  const eol = detectEol(src);
+  const block = renderBlock(masks, eol);
   const { startIdx, endIdx } = region(src, filePath);
   const before = src.slice(0, startIdx);
   const after = src.slice(endIdx + END.length);
@@ -70,10 +80,9 @@ function replaceBlock(filePath, block) {
 }
 
 const masks = loadMasks();
-const block = renderBlock(masks);
 
 for (const t of TARGETS) {
-  const changed = replaceBlock(t, block);
+  const changed = replaceBlock(t, masks);
   console.log(`${changed ? 'updated' : 'unchanged'}: ${t}`);
 }
 

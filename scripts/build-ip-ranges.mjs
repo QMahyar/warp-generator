@@ -7,6 +7,9 @@
  *
  * Each JSON: { name, icon, iconLibrary, type?, ips }  — only `ips` is used here.
  *
+ * Note: functions/api/generate.js (the Pages/Netlify engine) was deleted;
+ * worker/generate.js is the only target.
+ *
  * Block boundaries in the target files are marked with:
  *   // IP_RANGES:BEGIN
  *   const IP_RANGES = { ... }
@@ -46,18 +49,27 @@ function loadRanges() {
   return ranges;
 }
 
-function renderBlock(ranges) {
+function renderBlock(ranges, eol) {
   const lines = [HEADER, 'const IP_RANGES = {'];
   for (const [key, ips] of Object.entries(ranges)) {
     lines.push(`  ${key}: ${JSON.stringify(ips)},`);
   }
   lines.push('}');
   lines.push(END);
-  return lines.join('\n');
+  return lines.join(eol);
 }
 
-function replaceBlock(filePath, block) {
+/** Detect the dominant newline style of a file, defaulting to '\n'. */
+function detectEol(src) {
+  const crlf = (src.match(/\r\n/g) || []).length;
+  const lf = (src.match(/(?<!\r)\n/g) || []).length;
+  return crlf > lf ? '\r\n' : '\n';
+}
+
+function replaceBlock(filePath, ranges) {
   const src = readFileSync(filePath, 'utf8');
+  const eol = detectEol(src);
+  const block = renderBlock(ranges, eol);
   const startIdx = src.indexOf(BEGIN);
   const endIdx = src.indexOf(END);
 
@@ -77,11 +89,10 @@ function replaceBlock(filePath, block) {
 }
 
 const ranges = loadRanges();
-const block = renderBlock(ranges);
 
 let anyChanged = false;
 for (const t of TARGETS) {
-  const changed = replaceBlock(t, block);
+  const changed = replaceBlock(t, ranges);
   console.log(`${changed ? 'updated' : 'unchanged'}: ${t}`);
   anyChanged = anyChanged || changed;
 }
