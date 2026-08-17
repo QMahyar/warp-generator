@@ -11,8 +11,8 @@
  *                               fresh WARP account per request — ADR 0002);
  *                               they fall through to the gate (anon → 401)
  *                               or ASSETS 404. The Next.js app still points
- *                               at /api/generate — it is unmaintained
- *                               (ADR 0004) and its generator page is dead.
+ *                               at /api/generate — its own route handler
+ *                               (actively maintained), not this worker.
  *   - POST /api/auth/login    — password check (constant-time) → HMAC-signed
  *                               session cookie, 303 → /
  *   - POST /api/auth/logout   — clears the session cookie, 303 → /

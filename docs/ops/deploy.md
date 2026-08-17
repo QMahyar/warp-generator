@@ -6,15 +6,13 @@ repo (ADR 0003: Cloudflare-first). The interactive wizard
 this whole page; the sections below are the same walkthrough in prose, plus
 the exact end-state config and the troubleshooting table.
 
-> **Unmaintained legacy — read this first.** The Next.js app (`app/`,
-> `components/`, `lib/`, `config/`, `functions/`) and the Docker / Vercel /
-> Netlify sections of the root `README.md` describe the **old** single-config
-> generator product and are **unmaintained** (ADR 0004). Its public
-> `POST /api/generate` route was **removed** from the worker (ADR 0002) — the
-> worker now serves the password-gated panel + subscription endpoints only.
-> `README_ru.md` / `README_fa.md` are translations of that legacy README and
-> do not describe this deployment. The only surfaces that matter here are
-> `worker/` and `wrangler.jsonc`.
+> **Scope — read this first.** This guide deploys the panel worker only —
+> the surfaces that matter here are `worker/` and `wrangler.jsonc`. The
+> Next.js app (`app/`, `components/`, `lib/`, `config/`) is a separate,
+> actively maintained frontend. The worker's public `POST /api/generate`
+> route was removed (ADR 0002) — the worker now serves the password-gated
+> panel + subscription endpoints only. `README_ru.md` / `README_fa.md`
+> describe the Next.js generator, not this deployment.
 
 ---
 

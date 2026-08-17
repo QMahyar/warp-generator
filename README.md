@@ -8,18 +8,6 @@ subscription. Built as a lean BPB-style panel: no VLESS/Trojan, no routing
 rules, no chain proxies — just your WARP keys, your endpoints, seven config
 formats, everywhere.
 
-The legacy WARP Configuration Generator (Next.js UI + per-request
-registration) is retired — see [docs/adr/0001.md](docs/adr/0001.md) and the
-[Legacy](#-legacy) section.
-
-> ## ⚠️ The Next.js app in this repo is RETIRED (ADR 0004)
->
-> `npm run dev` / `npm run build` / `next start` serve the **unmaintained
-> legacy generator** — do not use them. The live product is the worker-served
-> panel behind `PASSWORD` auth (`wrangler dev` / `wrangler deploy`), which
-> includes its own generator tab. The `app/`, `components/`, `hooks/`, `lib/`
-> and `config/` directories are kept only as history.
-
 ## Features
 
 - **One shared WARP account** per deployment (ADR 0002): registration is
@@ -140,20 +128,7 @@ node scripts/build-ip-ranges.mjs   # regenerates IP_RANGES in worker/generate.js
 ```
 
 The worker is the production target (ADR 0003). Everything in `worker/`
-is plain ES modules with no build step; the Next.js app, `lib/`, `app/`,
-`components/`, `config/`, `functions/` remain in the repo only as history.
-
-## 🗂 Legacy
-
-- The Next.js generator UI and `functions/` (Netlify) are **unmaintained**
-  — the panel replaces them (ADR 0004). `README_ru.md` / `README_fa.md`
-  describe that retired product.
-- The old public `POST /api/generate` route is gone from the worker; the
-  Next.js dev server still has its own route handler (only relevant when
-  running the legacy app).
-- The GitHub Actions workflows shipping Docker/Vercel/Netlify and the
-  IP_RANGES rebuild still exist; the rebuild now targets
-  `worker/generate.js`.
+is plain ES modules with no build step.
 
 ## Project layout (worker/)
 

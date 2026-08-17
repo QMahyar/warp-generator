@@ -1,11 +1,5 @@
 # WARP Configuration Generator
 
-> **Примечание:** проект переориентирован — вместо per-request генератора
-> теперь это панель подписок WARP на Cloudflare Workers (генератор остался
-> вкладкой, но работает от сохранённого аккаунта). Актуальный README —
-> [английский](README.md), вводный документ — [docs/ops/deploy.md](docs/ops/deploy.md).
-> Всё ниже описывает **снятый с поддержки** генератор.
-
 **Русский** | [English](README.md) | [فارسی](README_fa.md)
 
 ![Скриншот WARP Generator](.github/assets/screenshot.png)
