@@ -68,11 +68,16 @@ export class SettingsError extends Error {
 const IPv4_RE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 const HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/i;
 
-function isValidIPv4(host) {
+/**
+ * Loose IPv4 check — four dot-separated octets that fit in a byte. Used by
+ * validateEndpointLine and re-used by import.js (addresses are stripped of
+ * CIDR before reaching it).
+ */
+export function isValidIPv4(host) {
   return IPv4_RE.test(host) && host.split('.').every((octet) => Number(octet) <= 255);
 }
 
-function isValidIPv6(host) {
+export function isValidIPv6(host) {
   if (host.length === 0 || host.length > 45) return false;
   const parts = host.split(':');
   const emptyCount = parts.filter((p) => p === '').length;

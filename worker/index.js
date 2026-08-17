@@ -460,16 +460,65 @@ async function readJsonOrFormBody(request) {
   return Object.fromEntries(new URLSearchParams(text));
 }
 
+// Brute-force guard for the single panel password (ticket 01): failed
+// attempts are counted per client IP; past MAX_ATTEMPTS within WINDOW_MS the
+// IP is locked out until the window slides. Module-state like the /reg
+// throttle (index.js `lastRegistrationAt`) — per-isolate, reset on cold
+// start, which is the right durability for a single-operator panel (a
+// distributed KV counter would trade the lockout for an edge-consistency
+// race). Only failures count; a successful login clears the counter.
+export const LOGIN_MAX_ATTEMPTS = 5;
+const LOGIN_WINDOW_MS = 10 * 60 * 1000; // 10 min rolling window
+const loginAttempts = new Map(); // ip -> { failures: number, firstFailureAt: number }
+
+function loginLockoutRemainingMs(ip) {
+  const entry = loginAttempts.get(ip);
+  if (!entry || entry.failures < LOGIN_MAX_ATTEMPTS) return 0;
+  const elapsed = Date.now() - entry.firstFailureAt;
+  return Math.max(0, LOGIN_WINDOW_MS - elapsed);
+}
+
+function recordLoginFailure(ip) {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now - entry.firstFailureAt >= LOGIN_WINDOW_MS) {
+    loginAttempts.set(ip, { failures: 1, firstFailureAt: now });
+  } else {
+    entry.failures += 1;
+  }
+}
+
+function clearLoginFailures(ip) {
+  loginAttempts.delete(ip);
+}
+
+/** Test hook (same convention as __resetRegistrationThrottle): clears the
+ * module-level counter so tests can exercise multiple login attempts. */
+export function __resetLoginThrottle() {
+  loginAttempts.clear();
+}
+
 async function handleLogin(request, env) {
   if (request.method !== 'POST') return methodNotAllowed();
   if (!env.PASSWORD) {
     return new Response(null, { status: 303, headers: { Location: '/?error=config' } });
   }
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const remaining = loginLockoutRemainingMs(ip);
+  if (remaining > 0) {
+    const secs = Math.ceil(remaining / 1000);
+    return new Response(null, {
+      status: 303,
+      headers: { Location: `/?error=locked&wait=${secs}` },
+    });
+  }
   const body = await readJsonOrFormBody(request);
   const ok = await verifyPassword(String(body.password ?? ''), env.PASSWORD);
   if (!ok) {
+    recordLoginFailure(ip);
     return new Response(null, { status: 303, headers: { Location: '/?error=invalid' } });
   }
+  clearLoginFailures(ip);
   const token = await issueSession(env.PASSWORD);
   const secure = request.url.startsWith('https:');
   return new Response(null, {

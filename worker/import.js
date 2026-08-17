@@ -34,6 +34,25 @@
 
 import { Buffer } from 'buffer';
 import { AccountError } from './account.js';
+import { isValidIPv4, isValidIPv6 } from './settings.js';
+
+/**
+ * Reject anything that isn't a plain IP. Address values are interpolated into
+ * lines (`.conf Address = <v>/32`, YAML `ip:`, sub links) — an attacker paste
+ * of newlines + `[Peer]`/`AllowedIPs` would otherwise inject lines into the
+ * served configs. Both the registration JSON and the .conf Address share this
+ * boundary. Throws AccountError with a readable message.
+ */
+function requireIp(value, what) {
+  const v = String(value ?? '').trim();
+  if (!v) throw new AccountError(`${what} is missing.`);
+  if (v.includes(':')) {
+    if (!isValidIPv6(v)) throw new AccountError(`${what} is not a valid IPv6 address.`);
+    return v;
+  }
+  if (!isValidIPv4(v)) throw new AccountError(`${what} is not a valid IPv4 address.`);
+  return v;
+}
 
 const CF_BASE = 'https://api.cloudflareclient.com/v0i1909051800';
 const CF_HEADERS = { 'User-Agent': 'okhttp/3.12.1' };
@@ -113,6 +132,12 @@ export function parseWgConf(text) {
   if (!iface.addressV4) {
     throw new AccountError('Missing [Interface] Address — expected an IPv4 address such as "Address = 172.16.0.2/32" (a v6 address may follow it).');
   }
+  // The Address values are interpolated into rendered .conf/YAML lines; a
+  // newline-attacker paste must not smuggle `[Peer]`/`AllowedIPs`/junk lines
+  // into the served config. Both tokens must be plain IPs (CIDR already
+  // stripped by parseConfAddresses).
+  requireIp(iface.addressV4, 'The [Interface] Address (IPv4)');
+  if (iface.addressV6) requireIp(iface.addressV6, 'The [Interface] Address (IPv6)');
   if (!peer || !peer.trim()) {
     throw new AccountError('Missing [Peer] PublicKey — the WARP server public key is required. Is this a WARP conf?');
   }
@@ -181,11 +206,10 @@ export function parseRegistrationJson(text) {
   }
   const iface = config.interface;
   const addresses = iface && iface.addresses;
-  const v4 = addresses && typeof addresses.v4 === 'string' ? addresses.v4.trim() : '';
-  const v6 = addresses && typeof addresses.v6 === 'string' ? addresses.v6.trim() : '';
-  if (!v4) {
-    throw new AccountError('Missing interface.addresses.v4 — the WARP client address is required.');
-  }
+  const v6 = addresses && typeof addresses.v6 === 'string' && addresses.v6.trim()
+    ? requireIp(addresses.v6, 'interface.addresses.v6')
+    : '';
+  const v4 = requireIp(addresses && addresses.v4, 'interface.addresses.v4');
   const peers = Array.isArray(config.peers) && config.peers.length ? config.peers : [];
   const peer = peers.find((p) => p && typeof p.public_key === 'string' && p.public_key);
   if (!peer) {

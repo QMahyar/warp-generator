@@ -137,6 +137,55 @@ test('conf parse: v6-only Address → readable error (the record needs the v4 ad
     (err) => err instanceof AccountError && /IPv4/.test(err.message));
 });
 
+test('conf parse: the chosen Address tokens must be plain IPs (hostname/garbage never stored)', () => {
+  // parseConfAddresses keeps only the FIRST v4 and FIRST v6 token (extra
+  // tokens are dropped), so the stored values are those two — and they must
+  // both be plain IPs. A hostname in the Address line (which would otherwise
+  // parse as a valid "host") must be rejected rather than emitted verbatim
+  // into rendered .conf/YAML lines.
+  assert.throws(() => parseWgConf(`[Interface]\nPrivateKey = ${KEY_A}\nAddress = evil.example.com/32\n[Peer]\nPublicKey = ${KEY_B}`),
+    (err) => err instanceof AccountError && /not a valid IPv4/.test(err.message));
+  // First token wins: the garbage second token is dropped, and the v4 is valid.
+  const m = parseWgConf(`[Interface]\nPrivateKey = ${KEY_A}\nAddress = 172.16.0.2/32 999.999.999.999\n[Peer]\nPublicKey = ${KEY_B}`);
+  assert.equal(m.v4, '172.16.0.2');
+  // A garbage FIRST token must be rejected (it would be stored otherwise).
+  assert.throws(() => parseWgConf(`[Interface]\nPrivateKey = ${KEY_A}\nAddress = 999.999.999.999/32\n[Peer]\nPublicKey = ${KEY_B}`),
+    (err) => err instanceof AccountError && /not a valid IPv4/.test(err.message));
+  // A valid v4+v6 conf still parses (no regression).
+  assert.equal(parseWgConf(CONF_V4).v4, '172.16.0.2');
+  assert.equal(parseWgConf(CONF_V4_V6).v6, 'fd01:5ca1:ab1e:82d7:abcd:ef01:2345:6789');
+});
+
+test('json parse: newline-injection inside addresses.v4 (a single JSON string) → rejected', () => {
+  // JSON carries the address as ONE string, so an attacker/reseller payload can
+  // embed newlines + fake WireGuard lines. Without validation this would flow
+  // straight into `Address = <value>/32` and every other renderer.
+  const evilJson = {
+    result: {
+      id: 'c',
+      token: 't',
+      config: {
+        interface: { addresses: { v4: '172.16.0.2\n[Peer]\nAllowedIPs = 0.0.0.0/0' }, private_key: KEY_A },
+        peers: [{ public_key: KEY_B }],
+      },
+    },
+  };
+  assert.throws(() => parseRegistrationJson(JSON.stringify(evilJson)),
+    (err) => err instanceof AccountError && /not a valid IPv4/.test(err.message));
+});
+
+test('json parse: malformed v4/v6 addresses → readable error (strict IP boundary)', () => {
+  const withV4 = (v4) => JSON.stringify({ result: { config: { interface: { addresses: { v4, v6: 'fd01::1' }, private_key: KEY_A }, peers: [{ public_key: KEY_B }] } } });
+  assert.throws(() => parseRegistrationJson(withV4('999.999.999.999')), (err) => err instanceof AccountError && /not a valid IPv4/.test(err.message));
+  assert.throws(() => parseRegistrationJson(withV4('172.16.0.2, 10.0.0.1')), (err) => err instanceof AccountError && /not a valid IPv4/.test(err.message));
+  assert.throws(() => parseRegistrationJson(withV4('172.16.0.2/24')), (err) => err instanceof AccountError && /not a valid IPv4/.test(err.message));
+  const unmergedV6 = JSON.stringify({ result: { config: { interface: { addresses: { v4: '172.16.0.2', v6: 'fd01:5ca1:ab1e:82d7:abcd:ef01:2345:6789' }, private_key: KEY_A }, peers: [{ public_key: KEY_B }] } } });
+  const badV6 = JSON.stringify({ result: { config: { interface: { addresses: { v4: '172.16.0.2', v6: 'fd01:5ca1:bad' }, private_key: KEY_A }, peers: [{ public_key: KEY_B }] } } });
+  assert.equal(parseRegistrationJson(unmergedV6).v6, 'fd01:5ca1:ab1e:82d7:abcd:ef01:2345:6789');
+  assert.throws(() => parseRegistrationJson(badV6), (err) => err instanceof AccountError && /not a valid IPv6/.test(err.message));
+  assert.throws(() => parseRegistrationJson(withV4('')), AccountError);
+});
+
 test('conf parse: missing [Peer] PublicKey → readable error', () => {
   assert.throws(() => parseWgConf(`[Interface]\nPrivateKey = ${KEY_A}\nAddress = 172.16.0.2/32`),
     (err) => err instanceof AccountError && /\[Peer\] PublicKey/.test(err.message));

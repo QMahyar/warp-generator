@@ -477,6 +477,7 @@ export function loginPage({ error = null } = {}) {
   const message =
     error === 'config' ? 'Panel is not configured: PASSWORD secret is missing.'
     : error === 'invalid' ? 'Incorrect password. Try again.'
+    : error === 'locked' ? 'Too many failed attempts — sign-in is locked. Try again in a few minutes.'
     : null;
   return page('WARP Panel — sign in', `
 <div class="card">

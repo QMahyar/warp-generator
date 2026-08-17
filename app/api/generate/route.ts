@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { generateWarpConfig, WarpGenerationError } from '@/lib/warp-service';
+import { throttleGenerate } from '@/lib/generate-throttle';
 import type { GenerateRequest, ApiResponse, GenerateResult } from '@/types';
 
 const CORS = {
@@ -14,6 +15,15 @@ export async function OPTIONS() {
 
 export async function POST(req: Request) {
   const headers = { ...CORS, 'Content-Type': 'application/json' };
+
+  const ip =
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    req.headers.get('cf-connecting-ip') ||
+    'unknown';
+  const throttled = throttleGenerate(ip);
+  if (throttled) {
+    return json<ApiResponse>({ success: false, message: throttled }, 429, headers);
+  }
 
   try {
     const body = await req.json() as GenerateRequest;
