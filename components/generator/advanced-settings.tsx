@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Toggle } from './toggle';
+import { useDebouncedCommit } from '@/hooks/use-generator';
 
 interface AdvancedSettingsProps {
   ipv6: boolean;
@@ -22,6 +23,8 @@ export function AdvancedSettings({
   customI1Enabled, onCustomI1EnabledChange, customI1Domain, onCustomI1DomainChange,
 }: AdvancedSettingsProps) {
   const [open, setOpen] = useState(false);
+  const [keepaliveLocal, setKeepaliveLocal, commitKeepalive] = useDebouncedCommit(keepaliveValue, onKeepaliveValueChange);
+  const [i1Local, setI1Local, commitI1] = useDebouncedCommit(customI1Domain, onCustomI1DomainChange);
 
   return (
     <div className="mb-3.5">
@@ -54,8 +57,9 @@ export function AdvancedSettings({
                   type="text"
                   inputMode="numeric"
                   maxLength={5}
-                  value={keepaliveValue}
-                  onChange={(e) => onKeepaliveValueChange(e.target.value.replace(/\D/g, ''))}
+                  value={keepaliveLocal}
+                  onChange={(e) => setKeepaliveLocal(e.target.value.replace(/\D/g, ''))}
+                  onBlur={commitKeepalive}
                   placeholder="25"
                   className="w-14 h-8 bg-[var(--surface-3)] rounded-[var(--radius-sm)] px-2 text-center text-[13px] text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none focus:ring-1 focus:ring-[var(--amber-700)]"
                 />
@@ -72,8 +76,9 @@ export function AdvancedSettings({
             {customI1Enabled && (
               <input
                 type="text"
-                value={customI1Domain}
-                onChange={(e) => onCustomI1DomainChange(e.target.value)}
+                value={i1Local}
+                onChange={(e) => setI1Local(e.target.value)}
+                onBlur={commitI1}
                 placeholder="Enter a domain (e.g. google.com)"
                 spellCheck={false}
                 className="w-full h-9 bg-[var(--surface-3)] rounded-[var(--radius-md)] px-3 text-[13px] text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none focus:ring-1 focus:ring-[var(--amber-700)]"

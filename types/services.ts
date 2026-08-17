@@ -7,5 +7,6 @@ export interface ServiceEntry {
   name: string;
   icon: string;
   iconLibrary: string;
+  category?: string;
   type?: 'new';
 }

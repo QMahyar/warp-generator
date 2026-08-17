@@ -10,7 +10,7 @@ import { AboutTab } from '@/components/generator/about-tab';
 import { ConfigSelectors } from '@/components/generator/config-selectors';
 import { ServicePicker } from '@/components/generator/service-picker';
 import { AdvancedSettings } from '@/components/generator/advanced-settings';
-import { useGenerator } from '@/hooks/use-generator';
+import { useGenerator, formatApiError } from '@/hooks/use-generator';
 import { isCommunityDns } from '@/config/dns';
 import type { ServiceEntry } from '@/types';
 import { FaCircleCheck } from "react-icons/fa6";
@@ -105,8 +105,19 @@ export function HomeClient({ services }: HomeClientProps) {
               )}
 
               {state.error && (
-                <div className="mt-3 p-3 bg-[var(--error)]/10 rounded-[var(--radius-md)] text-[13px] text-[var(--error)]">
-                  {state.error}
+                <div className="mt-3 p-3 bg-[var(--error)]/10 rounded-[var(--radius-md)] text-[13px] text-[var(--error)] flex flex-col gap-2">
+                  {state.errorKind === 'network' ? (
+                    <span>{state.error}</span>
+                  ) : (
+                    <>
+                      <span className="font-medium">Generation failed</span>
+                      <span>{formatApiError(state.error)}</span>
+                    </>
+                  )}
+                  <button onClick={gen.handleGenerate} disabled={state.isLoading}
+                    className="self-start h-9 px-4 bg-[var(--amber-900)] hover:bg-[var(--amber-700)] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--amber-300)]">
+                    Try again
+                  </button>
                 </div>
               )}
             </div>

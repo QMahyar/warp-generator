@@ -17,6 +17,7 @@ export interface ServiceEntry {
   name: string;
   icon: string;
   iconLibrary: string;
+  category?: string;
   type?: 'new';
 }
 
@@ -24,6 +25,7 @@ interface ServiceFileData {
   name: string;
   icon: string;
   iconLibrary: string;
+  category?: string;
   type?: 'new';
   ips: string;
 }
@@ -55,6 +57,7 @@ function loadAll() {
         name: data.name,
         icon: data.icon,
         iconLibrary: data.iconLibrary,
+        ...(data.category ? { category: data.category } : {}),
         ...(data.type ? { type: data.type } : {}),
       });
 

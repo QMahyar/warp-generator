@@ -1,12 +1,30 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ENDPOINTS } from '@/config/endpoints';
-import { FlagIcon } from '@/components/icons/flag-icon';
 import { FaGithub } from "react-icons/fa";
 
 const GITHUB_REPO = 'QMahyar/warp-generator';
 const GITHUB_URL = `https://github.com/${GITHUB_REPO}`;
+const STARS_CACHE_KEY = 'github-stars';
+const STARS_CACHE_TTL = 24 * 60 * 60 * 1000;
+
+function readCachedStars(): number | null {
+  try {
+    const raw = localStorage.getItem(STARS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.count !== 'number') return null;
+    return parsed.count;
+  } catch {
+    return null;
+  }
+}
+
+function cacheStars(count: number) {
+  try {
+    localStorage.setItem(STARS_CACHE_KEY, JSON.stringify({ count, ts: Date.now() }));
+  } catch {}
+}
 
 function SectionLabel({ children }: { children: string }) {
   return (
@@ -38,10 +56,34 @@ function GitHubStars() {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
+    const cached = readCachedStars();
+    let ttlValid = false;
+    try {
+      const raw = localStorage.getItem(STARS_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        ttlValid = typeof parsed?.ts === 'number' && Date.now() - parsed.ts < STARS_CACHE_TTL;
+      }
+    } catch {}
+
+    if (ttlValid && cached !== null) {
+      setCount(cached);
+      return;
+    }
+
     fetch(`https://api.github.com/repos/${GITHUB_REPO}`)
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => d && setCount(d.stargazers_count))
-      .catch(() => {});
+      .then((d) => {
+        if (d && typeof d.stargazers_count === 'number') {
+          cacheStars(d.stargazers_count);
+          setCount(d.stargazers_count);
+        } else if (cached !== null) {
+          setCount(cached);
+        }
+      })
+      .catch(() => {
+        if (cached !== null) setCount(cached);
+      });
   }, []);
 
   return (
@@ -52,8 +94,6 @@ function GitHubStars() {
 }
 
 export function Sidebar() {
-  const servers = ENDPOINTS.filter((e) => e.flag);
-
   return (
     <aside className="flex flex-col gap-1.5 lg:bg-[var(--surface)] lg:rounded-[var(--radius-lg)] lg:p-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
 
@@ -66,24 +106,6 @@ export function Sidebar() {
           Star on GitHub
         </span>
       </div>
-
-      {servers.length > 0 && (
-        <>
-          <SectionLabel>Servers</SectionLabel>
-          {servers.map((s) => (
-            <a key={s.id} href={s.externalUrl} target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-3 py-2.5 rounded-[var(--radius-md)] bg-[var(--surface-2)] hover:bg-[var(--surface-3)] text-[var(--text)] transition-all">
-              <div className="w-8 h-8 rounded-lg bg-[var(--surface-3)] flex items-center justify-center shrink-0">
-                <FlagIcon code={s.flag!} />
-              </div>
-              <span className="flex-1 text-[13px]">{s.label}</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="shrink-0 text-[var(--text-dim)]">
-                <path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" />
-              </svg>
-            </a>
-          ))}
-        </>
-      )}
 
       <div className="flex-1 min-h-[16px]" />
     </aside>

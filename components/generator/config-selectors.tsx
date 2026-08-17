@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useId } from 'react';
+import type { KeyboardEvent } from 'react';
 import { CONFIG_FORMATS } from '@/config/formats';
 import { ENDPOINTS } from '@/config/endpoints';
 import { DNS_PROVIDERS } from '@/config/dns';
@@ -24,20 +25,110 @@ interface DropdownProps {
 
 function Dropdown({ label, value, options, onChange }: DropdownProps) {
   const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(() => {
+    const idx = options.findIndex((o) => o.id === value);
+    return idx >= 0 && !options[idx].disabled ? idx : options.findIndex((o) => !o.disabled);
+  });
   const ref = useRef<HTMLDivElement>(null);
+  const optionRefs = useRef<(HTMLElement | null)[]>([]);
+  const listboxId = useId();
   const current = options.find((o) => o.id === value);
+  const enabledIndices = options
+    .map((o, i) => (!o.disabled ? i : -1))
+    .filter((i) => i >= 0);
+  const firstEnabled = enabledIndices[0] ?? -1;
+  const lastEnabled = enabledIndices[enabledIndices.length - 1] ?? -1;
+  const activeOptionId = activeIndex >= 0 ? `${listboxId}-opt-${activeIndex}` : undefined;
 
   useEffect(() => {
-    const close = (e: MouseEvent) => {
+    const idx = options.findIndex((o) => o.id === value);
+    setActiveIndex(idx >= 0 && !options[idx].disabled ? idx : firstEnabled);
+  }, [value, options, firstEnabled]);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, []);
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [open]);
+
+  useEffect(() => {
+    if (open && activeIndex >= 0) {
+      optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [open, activeIndex]);
+
+  const openListbox = () => {
+    const idx = options.findIndex((o) => o.id === value);
+    setActiveIndex(idx >= 0 && !options[idx].disabled ? idx : firstEnabled);
+    setOpen(true);
+  };
+
+  const moveActive = (dir: 1 | -1) => {
+    setActiveIndex((prev) => {
+      if (prev < 0) return firstEnabled;
+      let i = prev + dir;
+      while (i >= 0 && i < options.length) {
+        if (!options[i].disabled) return i;
+        i += dir;
+      }
+      return prev;
+    });
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        if (open) moveActive(1);
+        else openListbox();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (open) moveActive(-1);
+        else openListbox();
+        break;
+      case 'Home':
+        e.preventDefault();
+        if (open && firstEnabled >= 0) setActiveIndex(firstEnabled);
+        break;
+      case 'End':
+        e.preventDefault();
+        if (open && lastEnabled >= 0) setActiveIndex(lastEnabled);
+        break;
+      case 'Enter':
+      case ' ':
+        e.preventDefault();
+        if (!open) openListbox();
+        else if (activeIndex >= 0 && !options[activeIndex].disabled) {
+          onChange(options[activeIndex].id);
+          setOpen(false);
+        }
+        break;
+      case 'Escape':
+        if (open) {
+          setOpen(false);
+          e.currentTarget.focus();
+        }
+        break;
+      case 'Tab':
+        setOpen(false);
+        break;
+    }
+  };
 
   return (
     <div ref={ref} className="relative">
-      <button type="button" onClick={() => setOpen(!open)}
+      <button type="button"
+        onClick={() => (open ? setOpen(false) : openListbox())}
+        onKeyDown={handleKeyDown}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listboxId}
+        aria-activedescendant={activeOptionId}
         className={`w-full text-left bg-[var(--surface-2)] rounded-[var(--radius-md)] px-3.5 py-2.5 transition-colors hover:bg-[var(--surface-3)] cursor-pointer ${open ? 'bg-[var(--surface-3)]' : ''}`}>
         <p className="text-[11px] text-[var(--text-dim)] font-light mb-0.5">{label}</p>
         <div className="flex items-center justify-between gap-2">
@@ -52,12 +143,14 @@ function Dropdown({ label, value, options, onChange }: DropdownProps) {
         </div>
       </button>
       {open && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-[var(--surface)] rounded-[var(--radius-md)] py-1 max-h-[220px] overflow-y-auto"
+        <div role="listbox" id={listboxId} aria-label={label}
+          className="absolute z-50 top-full left-0 right-0 mt-1 bg-[var(--surface)] rounded-[var(--radius-md)] py-1 max-h-[220px] overflow-y-auto"
           style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
-          {options.map((opt) => {
+          {options.map((opt, i) => {
             if (opt.disabled) {
               return (
-                <div key={opt.id}
+                <div key={opt.id} role="option" id={`${listboxId}-opt-${i}`}
+                  aria-selected={opt.id === value} aria-disabled="true"
                   className="w-full text-left px-3.5 py-2 text-[13px] flex items-center gap-2 text-[var(--text-dim)] opacity-50 cursor-not-allowed">
                   {opt.flag && <FlagIcon code={opt.flag} />}
                   {opt.label}
@@ -65,8 +158,15 @@ function Dropdown({ label, value, options, onChange }: DropdownProps) {
               );
             }
             return (
-              <button key={opt.id} onClick={() => { onChange(opt.id); setOpen(false); }}
+              <button key={opt.id} role="option" id={`${listboxId}-opt-${i}`}
+                ref={(el) => { optionRefs.current[i] = el; }}
+                tabIndex={-1}
+                aria-selected={opt.id === value}
+                onMouseEnter={() => setActiveIndex(i)}
+                onClick={() => { onChange(opt.id); setOpen(false); }}
                 className={`w-full text-left px-3.5 py-2 text-[13px] flex items-center gap-2 transition-colors ${
+                  i === activeIndex ? 'ring-1 ring-[var(--amber-300)]' : ''
+                } ${
                   opt.id === value
                     ? 'text-[var(--amber-300)] bg-[var(--amber-900)]/50'
                     : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--surface-2)]'

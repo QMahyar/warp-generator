@@ -1,10 +1,62 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { ConfigFormat, DeviceType, SiteMode } from '@/types';
 import type { GenerateResult, ApiResponse } from '@/types';
 import { getEndpointValue, isExternalEndpoint } from '@/config/endpoints';
 import { DEFAULT_DNS_ID, isCommunityDns } from '@/config/dns';
+
+export function useDebouncedCommit(
+  externalValue: string,
+  onChange: (v: string) => void,
+  delayMs = 300
+): [string, (v: string) => void, () => void] {
+  const [localValue, setLocalValue] = useState(externalValue);
+  const pendingRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!pendingRef.current && externalValue !== localValue) {
+      setLocalValue(externalValue);
+    }
+  }, [externalValue, localValue]);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  const setValue = useCallback((v: string) => {
+    setLocalValue(v);
+    pendingRef.current = true;
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      pendingRef.current = false;
+      onChange(v);
+    }, delayMs);
+  }, [onChange, delayMs]);
+
+  const commitNow = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    if (pendingRef.current) {
+      pendingRef.current = false;
+      onChange(localValue);
+    }
+  }, [onChange, localValue]);
+
+  return [localValue, setValue, commitNow];
+}
+
+export function formatApiError(message?: string): string {
+  const cleaned = (message ?? '').trim().replace(/^(?:Error\s*:\s*|Generation failed\s*:\s*)+/i, '').trim();
+  if (!cleaned || /^generation failed$/i.test(cleaned)) {
+    return 'Generation failed. Please check the inputs and try again.';
+  }
+  return cleaned;
+}
 
 export interface GeneratorState {
   configFormat: ConfigFormat;
@@ -23,6 +75,7 @@ export interface GeneratorState {
   isLoading: boolean;
   isGenerated: boolean;
   error: string;
+  errorKind: 'network' | 'api' | null;
   result: GenerateResult | null;
 }
 
@@ -44,6 +97,7 @@ export function useGenerator() {
     isLoading: false,
     isGenerated: false,
     error: '',
+    errorKind: null,
     result: null,
   });
 
@@ -97,7 +151,7 @@ export function useGenerator() {
   }, []);
 
   const handleGenerate = useCallback(async () => {
-    setState((prev) => ({ ...prev, isLoading: true, error: '' }));
+    setState((prev) => ({ ...prev, isLoading: true, error: '', errorKind: null }));
 
     try {
       const endpoint = getEndpointValue(state.endpointId, state.customEndpoint);
@@ -136,14 +190,16 @@ export function useGenerator() {
         setState((prev) => ({
           ...prev,
           isLoading: false,
-          error: data.message || 'Generation failed',
+          errorKind: 'api',
+          error: formatApiError(data.message),
         }));
       }
     } catch {
       setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: 'Network error. Please try again.',
+        errorKind: 'network',
+        error: 'Network error. Check your internet connection and try again.',
       }));
     }
   }, [
@@ -158,6 +214,7 @@ export function useGenerator() {
       isGenerated: false,
       result: null,
       error: '',
+      errorKind: null,
     }));
   }, []);
 

@@ -12,6 +12,14 @@ The legacy WARP Configuration Generator (Next.js UI + per-request
 registration) is retired — see [docs/adr/0001.md](docs/adr/0001.md) and the
 [Legacy](#-legacy) section.
 
+> ## ⚠️ The Next.js app in this repo is RETIRED (ADR 0004)
+>
+> `npm run dev` / `npm run build` / `next start` serve the **unmaintained
+> legacy generator** — do not use them. The live product is the worker-served
+> panel behind `PASSWORD` auth (`wrangler dev` / `wrangler deploy`), which
+> includes its own generator tab. The `app/`, `components/`, `hooks/`, `lib/`
+> and `config/` directories are kept only as history.
+
 ## Features
 
 - **One shared WARP account** per deployment (ADR 0002): registration is

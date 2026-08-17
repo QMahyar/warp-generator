@@ -25,6 +25,14 @@ export function ResultPanel({ result, onDownload, onCopy }: ResultPanelProps) {
     }
   };
 
+  const handleDownloadQR = () => {
+    if (!result.qrCodeBase64) return;
+    const a = document.createElement('a');
+    a.href = result.qrCodeBase64;
+    a.download = result.fileName.replace(/\.[^.]+$/, '') + '-qr.png';
+    a.click();
+  };
+
   return (
     <div className="bg-[var(--surface)] rounded-[var(--radius-lg)] p-5">
       {/* Success header */}
@@ -88,8 +96,15 @@ export function ResultPanel({ result, onDownload, onCopy }: ResultPanelProps) {
 
       {/* QR code */}
       {showQR && result.qrCodeBase64 && (
-        <div className="mt-3 flex justify-center p-4 bg-[var(--surface-2)] rounded-[var(--radius-md)]">
-          <img src={result.qrCodeBase64} alt="QR Code" width={200} height={200} className="rounded" />
+        <div className="mt-3 flex flex-col items-center gap-3 p-4 bg-[var(--surface-2)] rounded-[var(--radius-md)]">
+          <img src={result.qrCodeBase64} alt={`QR Code for ${result.fileName}`} width={200} height={200} className="rounded" />
+          <button onClick={handleDownloadQR}
+            className="h-9 px-4 bg-[var(--amber-900)] hover:bg-[var(--amber-700)] rounded-[var(--radius-md)] text-[13px] font-medium text-[var(--amber-300)] flex items-center justify-center gap-2 transition-all">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+            Download QR
+          </button>
         </div>
       )}
     </div>
