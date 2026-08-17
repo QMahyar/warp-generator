@@ -1,5 +1,13 @@
 import QRCode from 'qrcode';
 
+/** QR capacity limit hit when the payload is too large. */
+export class QRCapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QRCapacityError';
+  }
+}
+
 export async function generateQR(text: string): Promise<string> {
   try {
     const dataUrl = await QRCode.toDataURL(text, {
@@ -8,7 +16,12 @@ export async function generateQR(text: string): Promise<string> {
       errorCorrectionLevel: 'M',
     });
     return dataUrl;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && /too big|data size|capacity/i.test(err.message)) {
+      throw new QRCapacityError(
+        'Config too large to encode as a QR code — use the download or copy buttons instead.'
+      );
+    }
     return fallbackSVG();
   }
 }

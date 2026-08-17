@@ -1,6 +1,6 @@
 import type { BuildParams } from '@/types';
 import { parseEndpoint } from './shared';
-import { reservedToCommaSeparated } from '../crypto';
+import { reservedToBytes } from '../crypto';
 
 export function buildHusi(p: BuildParams): string {
   const { server, port } = parseEndpoint(p.endpoint);
@@ -19,7 +19,7 @@ export function buildHusi(p: BuildParams): string {
       pre_shared_key: '',
       allowed_ips: p.allowedIPs.split(', '),
       persistent_keepalive_interval: 600,
-      reserved: reservedToCommaSeparated(p.reserved),
+      reserved: reservedToBytes(p.reserved),
     }],
     detour: 'direct',
   }, null, 2);

@@ -1,10 +1,10 @@
 import type { BuildParams } from '@/types';
 import { parseEndpoint } from './shared';
-import { reservedToCommaSeparated } from '../crypto';
+import { reservedToBytes } from '../crypto';
 
 export function buildClash(p: BuildParams): string {
   const { server, port } = parseEndpoint(p.endpoint);
-  const reserved = reservedToCommaSeparated(p.reserved);
+  const reserved = reservedToBytes(p.reserved).join(', ');
   const dnsList = p.dns
     .split(',')
     .map((s) => s.trim())
@@ -33,8 +33,8 @@ export function buildClash(p: BuildParams): string {
    s2: 0
    h1: 1
    h2: 2
-   h4: 3
-   h3: 4
+   h3: 3
+   h4: 4
 
 proxy-groups:
 - name: Cloudflare

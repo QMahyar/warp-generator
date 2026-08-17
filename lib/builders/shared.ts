@@ -31,6 +31,21 @@ export function formatDNS(): string {
 }
 
 export function parseEndpoint(ep: string): { server: string; port: number } {
-  const [server, portStr] = ep.split(':');
+  const trimmed = ep.trim();
+  // IPv6 endpoints are bracketed: "[2606:4700:4700::1111]:2408" (or bare an ipv6 without port).
+  const v6 = trimmed.match(/\[([^\]]+)\](?::(\d+))?$/);
+  if (v6) {
+    return { server: v6[1], port: parseInt(v6[2] || '4500', 10) };
+  }
+  const index = trimmed.lastIndexOf(':');
+  if (index === -1) {
+    return { server: trimmed, port: 4500 };
+  }
+  const server = trimmed.slice(0, index);
+  const portStr = trimmed.slice(index + 1);
+  // Guard against a bare IPv6 literal reaching the plain "host:port" branch.
+  if (server.includes(':')) {
+    return { server: trimmed, port: 4500 };
+  }
   return { server, port: parseInt(portStr || '4500', 10) };
 }

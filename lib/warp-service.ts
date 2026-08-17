@@ -7,7 +7,7 @@ import { buildDnsLine, isCommunityDns, DEFAULT_DNS_ID } from '@/config/dns';
 import { buildConfig, buildConfigForQR } from './builders';
 import { pickI1 } from './builders/shared';
 import { generateI1Line } from './quic';
-import { generateQR, unsupportedQR } from './qr-generator';
+import { generateQR, unsupportedQR, QRCapacityError } from './qr-generator';
 import { getFileName, getFormatInfo, supportsQR } from '@/config/formats';
 
 export class WarpGenerationError extends Error {
@@ -47,7 +47,16 @@ export async function generateWarpConfig(req: GenerateRequest): Promise<Generate
     let qrCodeBase64: string;
     if (supportsQR(format)) {
       const qrText = buildConfigForQR(format, params);
-      qrCodeBase64 = await generateQR(qrText);
+      try {
+        qrCodeBase64 = await generateQR(qrText);
+      } catch (err) {
+        if (err instanceof QRCapacityError) {
+          const info = getFormatInfo(format);
+          qrCodeBase64 = unsupportedQR(info.name);
+        } else {
+          throw err;
+        }
+      }
     } else {
       const info = getFormatInfo(format);
       qrCodeBase64 = unsupportedQR(info.name);
