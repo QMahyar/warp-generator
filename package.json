@@ -3,9 +3,9 @@
   "version": "2.0.0",
   "private": true,
   "scripts": {
-    "test": "node --test",
+    "test": "node --test \"worker/**/*.test.js\"",
     "test:front": "vitest run",
-    "test:all": "node --test && vitest run",
+    "test:all": "node --test \"worker/**/*.test.js\" && vitest run",
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
