@@ -31,6 +31,8 @@ function Dropdown({ label, value, options, onChange }: DropdownProps) {
   });
   const ref = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<(HTMLElement | null)[]>([]);
+  const typeBufferRef = useRef('');
+  const typeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listboxId = useId();
   const current = options.find((o) => o.id === value);
   const enabledIndices = options
@@ -43,6 +45,7 @@ function Dropdown({ label, value, options, onChange }: DropdownProps) {
   useEffect(() => {
     const idx = options.findIndex((o) => o.id === value);
     setActiveIndex(idx >= 0 && !options[idx].disabled ? idx : firstEnabled);
+    typeBufferRef.current = '';
   }, [value, options, firstEnabled]);
 
   useEffect(() => {
@@ -59,6 +62,22 @@ function Dropdown({ label, value, options, onChange }: DropdownProps) {
       optionRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
     }
   }, [open, activeIndex]);
+
+  useEffect(() => {
+    if (!open) {
+      optionRefs.current = [];
+      typeBufferRef.current = '';
+      if (typeTimerRef.current) {
+        clearTimeout(typeTimerRef.current);
+        typeTimerRef.current = null;
+      }
+    }
+  }, [open]);
+
+  useEffect(() => () => {
+    optionRefs.current = [];
+    if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+  }, []);
 
   const openListbox = () => {
     const idx = options.findIndex((o) => o.id === value);
@@ -79,6 +98,27 @@ function Dropdown({ label, value, options, onChange }: DropdownProps) {
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key.length === 1 && e.key !== ' ' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (!open) openListbox();
+      const buffer = typeBufferRef.current + e.key.toLowerCase();
+      const start = activeIndex >= 0 ? activeIndex : -1;
+      let next = -1;
+      for (let step = 1; step <= options.length; step++) {
+        const i = (start + step) % options.length;
+        if (!options[i].disabled && options[i].label.toLowerCase().startsWith(buffer)) {
+          next = i;
+          break;
+        }
+      }
+      if (next >= 0) setActiveIndex(next);
+      typeBufferRef.current = buffer;
+      if (typeTimerRef.current) clearTimeout(typeTimerRef.current);
+      typeTimerRef.current = setTimeout(() => {
+        typeBufferRef.current = '';
+      }, 500);
+      return;
+    }
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
