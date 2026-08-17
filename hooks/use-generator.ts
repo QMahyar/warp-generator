@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { SiteMode } from '@/types';
 import type { GenerateResult, ApiResponse } from '@/types';
 import { getEndpointValue, isExternalEndpoint } from '@/config/endpoints';
@@ -45,6 +45,32 @@ export function useGenerator() {
     setState((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  // The keepalive/I1 text fields are debounced in AdvancedSettings: the parent
+  // state only updates after the delay or on blur, so a Generate click right
+  // after typing would otherwise build the request from a stale committed
+  // value. These refs mirror the LIVE typed values (written synchronously by
+  // the field setters in AdvancedSettings) and handleGenerate reads them
+  // instead of the state snapshot — same reason refs beat useState for
+  // "latest value on click" reads.
+  const latestDebounced = useRef<{ keepaliveValue: string; customI1Domain: string }>({
+    keepaliveValue: '',
+    customI1Domain: '',
+  });
+  latestDebounced.current.keepaliveValue = state.keepaliveValue;
+  latestDebounced.current.customI1Domain = state.customI1Domain;
+
+  /** Setter for the debounced keepalive field: mirrors into the ref first. */
+  const setKeepaliveValue = useCallback((v: string) => {
+    latestDebounced.current.keepaliveValue = v;
+    setState((prev) => ({ ...prev, keepaliveValue: v }));
+  }, []);
+
+  /** Setter for the debounced I1 domain field: mirrors into the ref first. */
+  const setCustomI1Domain = useCallback((v: string) => {
+    latestDebounced.current.customI1Domain = v;
+    setState((prev) => ({ ...prev, customI1Domain: v }));
+  }, []);
+
   // Community DNS forbids split tunneling: selecting one forces "all sites" and
   // clears any selected services (the picker is hidden / "specific" disabled in UI).
   const setDnsId = useCallback((id: string) => {
@@ -73,15 +99,21 @@ export function useGenerator() {
     }));
   }, []);
 
+  // Request sequence guard: handleGenerate is async; a slow first request
+  // could resolve after a newer one and clobber its result. Each call bumps
+  // `requestSeqRef`; the response only applies if it's still the latest.
+  const requestSeqRef = useRef(0);
+
   const handleGenerate = useCallback(async () => {
+    const seq = ++requestSeqRef.current;
     setState((prev) => ({ ...prev, isLoading: true, error: '', errorKind: null }));
 
     try {
       const endpoint = getEndpointValue(state.endpointId, state.customEndpoint);
       const persistentKeepalive = state.keepaliveEnabled
-        ? (parseInt(state.keepaliveValue, 10) || 25)
+        ? (parseInt(latestDebounced.current.keepaliveValue, 10) || 25)
         : null;
-      const customI1Domain = state.customI1Enabled ? state.customI1Domain.trim() : '';
+      const customI1Domain = state.customI1Enabled ? latestDebounced.current.customI1Domain.trim() : '';
 
       const res = await fetch('/api/generate', {
         method: 'POST',
@@ -102,6 +134,9 @@ export function useGenerator() {
 
       const data = (await res.json()) as ApiResponse<GenerateResult>;
 
+      // Ignore the response if a newer generate has started meanwhile.
+      if (seq !== requestSeqRef.current) return;
+
       if (data.success && data.content) {
         setState((prev) => ({
           ...prev,
@@ -118,6 +153,7 @@ export function useGenerator() {
         }));
       }
     } catch {
+      if (seq !== requestSeqRef.current) return;
       setState((prev) => ({
         ...prev,
         isLoading: false,
@@ -161,6 +197,7 @@ export function useGenerator() {
 
   return {
     state, set, toggleService, setEndpoint, setDnsId, setSiteMode,
+    setKeepaliveValue, setCustomI1Domain,
     handleGenerate, reset, copyConfig, downloadConfig,
   };
 }

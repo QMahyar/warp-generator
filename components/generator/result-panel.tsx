@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import type { GenerateResult } from '@/types';
 import { getFormatInfo, supportsQR } from '@/config/formats';
 import { FaCheck  } from "react-icons/fa";
@@ -14,14 +14,22 @@ interface ResultPanelProps {
 export function ResultPanel({ result, onDownload, onCopy }: ResultPanelProps) {
   const [copied, setCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const info = getFormatInfo(result.configFormat);
   const hasQR = supportsQR(result.configFormat);
+
+  // Clear the pending copied-reset timer on unmount so it never fires against
+  // a removed node (React 18+ no longer warns, but the timer leak remains).
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
 
   const handleCopy = async () => {
     const ok = await onCopy();
     if (ok) {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => setCopied(false), 2000);
     }
   };
 

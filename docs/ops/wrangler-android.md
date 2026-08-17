@@ -115,11 +115,11 @@ Workers Scripts + KV + Account Settings).
 `scripts/deploy-warp-panel.sh` handles secrets, KV, jsonc patching, deploy
 and smoke. On Android: export the three env vars first, and be aware its KV
 parser predates the wrangler-4 output shape (stage 5 may die with
-"could not determine the 'ACCOUNT' namespace id") — create the namespaces
+"could not determine the 'STATE' namespace id") — create the namespaces
 manually and paste the ids into `wrangler.jsonc`:
 
 ```sh
-wrangler kv namespace create ACCOUNT     # copy "id" from the JSON output
+wrangler kv namespace create STATE       # copy "id" from the JSON output
 wrangler kv namespace create ENDPOINTS
 wrangler kv namespace create AWG
 ```

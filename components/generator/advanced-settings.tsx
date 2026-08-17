@@ -10,10 +10,12 @@ interface AdvancedSettingsProps {
   keepaliveEnabled: boolean;
   onKeepaliveEnabledChange: (v: boolean) => void;
   keepaliveValue: string;
+  /** Called synchronously on every keepalive keystroke (not only on blur). */
   onKeepaliveValueChange: (v: string) => void;
   customI1Enabled: boolean;
   onCustomI1EnabledChange: (v: boolean) => void;
   customI1Domain: string;
+  /** Called synchronously on every I1-domain keystroke (not only on blur). */
   onCustomI1DomainChange: (v: string) => void;
 }
 
@@ -23,6 +25,10 @@ export function AdvancedSettings({
   customI1Enabled, onCustomI1EnabledChange, customI1Domain, onCustomI1DomainChange,
 }: AdvancedSettingsProps) {
   const [open, setOpen] = useState(false);
+  // The local value is what the input shows; the parent's onKeepaliveValueChange
+  // fires on blur/debounce to persist into generator state. The ref-based
+  // latest-value read in use-generator (handleGenerate) covers the case where
+  // Generate is clicked before the debounce flushes.
   const [keepaliveLocal, setKeepaliveLocal, commitKeepalive] = useDebouncedCommit(keepaliveValue, onKeepaliveValueChange);
   const [i1Local, setI1Local, commitI1] = useDebouncedCommit(customI1Domain, onCustomI1DomainChange);
 
@@ -58,7 +64,13 @@ export function AdvancedSettings({
                   inputMode="numeric"
                   maxLength={5}
                   value={keepaliveLocal}
-                  onChange={(e) => setKeepaliveLocal(e.target.value.replace(/\D/g, ''))}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/\D/g, '');
+                    setKeepaliveLocal(v);
+                    // Mirror into the parent's latest-value ref so Generate
+                    // right after typing uses this value, not the stale one.
+                    onKeepaliveValueChange(v);
+                  }}
                   onBlur={commitKeepalive}
                   placeholder="25"
                   className="w-14 h-8 bg-[var(--surface-3)] rounded-[var(--radius-sm)] px-2 text-center text-[13px] text-[var(--text)] placeholder:text-[var(--text-dim)] outline-none focus:ring-1 focus:ring-[var(--amber-700)]"
@@ -77,7 +89,12 @@ export function AdvancedSettings({
               <input
                 type="text"
                 value={i1Local}
-                onChange={(e) => setI1Local(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setI1Local(v);
+                  // Mirror into the parent's latest-value ref (see keepalive).
+                  onCustomI1DomainChange(v);
+                }}
                 onBlur={commitI1}
                 placeholder="Enter a domain (e.g. google.com)"
                 spellCheck={false}

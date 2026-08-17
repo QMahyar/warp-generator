@@ -68,11 +68,11 @@ export function HomeClient({ services }: HomeClientProps) {
                   keepaliveEnabled={state.keepaliveEnabled}
                   onKeepaliveEnabledChange={(v) => gen.set('keepaliveEnabled', v)}
                   keepaliveValue={state.keepaliveValue}
-                  onKeepaliveValueChange={(v) => gen.set('keepaliveValue', v)}
+                  onKeepaliveValueChange={gen.setKeepaliveValue}
                   customI1Enabled={state.customI1Enabled}
                   onCustomI1EnabledChange={(v) => gen.set('customI1Enabled', v)}
                   customI1Domain={state.customI1Domain}
-                  onCustomI1DomainChange={(v) => gen.set('customI1Domain', v)}
+                  onCustomI1DomainChange={gen.setCustomI1Domain}
                 />
               </div>
 
