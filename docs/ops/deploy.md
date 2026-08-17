@@ -8,7 +8,7 @@ the exact end-state config and the troubleshooting table.
 
 > **Scope — read this first.** This guide deploys the panel worker only —
 > the surfaces that matter here are `worker/` and `wrangler.jsonc`. The
-> Next.js app (`app/`, `components/`, `lib/`, `config/`) is a separate,
+> Next.js app (`app/`, `components/`, `lib/`, `config/`, `functions/`) is a separate,
 > actively maintained frontend. The worker's public `POST /api/generate`
 > route was removed (ADR 0002) — the worker now serves the password-gated
 > panel + subscription endpoints only. `README_ru.md` / `README_fa.md`
