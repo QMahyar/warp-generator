@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type { ConfigFormat, DeviceType, SiteMode } from '@/types';
+import type { SiteMode } from '@/types';
 import type { GenerateResult, ApiResponse } from '@/types';
 import { getEndpointValue, isExternalEndpoint } from '@/config/endpoints';
-import { DEFAULT_DNS_ID, isCommunityDns } from '@/config/dns';
+import { DEFAULT_DNS_ID } from '@/config/dns';
+import type { GeneratorState } from './generator-state';
+import { applyDnsSelection, applyServiceToggle, applySiteMode } from './generator-state';
 
 export function useDebouncedCommit(
   externalValue: string,
@@ -58,27 +60,6 @@ export function formatApiError(message?: string): string {
   return cleaned;
 }
 
-export interface GeneratorState {
-  configFormat: ConfigFormat;
-  deviceType: DeviceType;
-  siteMode: SiteMode;
-  endpointId: string;
-  customEndpoint: string;
-  selectedServices: string[];
-  dnsId: string;
-  ipv6: boolean;
-  excludeLan: boolean;
-  keepaliveEnabled: boolean;
-  keepaliveValue: string;
-  customI1Enabled: boolean;
-  customI1Domain: string;
-  isLoading: boolean;
-  isGenerated: boolean;
-  error: string;
-  errorKind: 'network' | 'api' | null;
-  result: GenerateResult | null;
-}
-
 export function useGenerator() {
   const [state, setState] = useState<GeneratorState>({
     configFormat: 'wireguard',
@@ -110,31 +91,16 @@ export function useGenerator() {
   // Community DNS forbids split tunneling: selecting one forces "all sites" and
   // clears any selected services (the picker is hidden / "specific" disabled in UI).
   const setDnsId = useCallback((id: string) => {
-    setState((prev) => {
-      if (isCommunityDns(id)) {
-        return { ...prev, dnsId: id, siteMode: 'all', selectedServices: [] };
-      }
-      return { ...prev, dnsId: id };
-    });
+    setState((prev) => applyDnsSelection(prev, id));
   }, []);
 
   // "Exclude LAN" only applies to "all sites"; switching to "specific" turns it off.
   const setSiteMode = useCallback((mode: SiteMode) => {
-    setState((prev) => {
-      if (mode === 'specific' && isCommunityDns(prev.dnsId)) return prev;
-      if (mode === 'specific') return { ...prev, siteMode: mode, excludeLan: false };
-      return { ...prev, siteMode: mode };
-    });
+    setState((prev) => applySiteMode(prev, mode));
   }, []);
 
   const toggleService = useCallback((key: string) => {
-    setState((prev) => {
-      if (isCommunityDns(prev.dnsId)) return prev;
-      const selectedServices = prev.selectedServices.includes(key)
-        ? prev.selectedServices.filter((s) => s !== key)
-        : [...prev.selectedServices, key];
-      return { ...prev, selectedServices, excludeLan: selectedServices.length ? false : prev.excludeLan };
-    });
+    setState((prev) => applyServiceToggle(prev, key));
   }, []);
 
   const setEndpoint = useCallback((id: string) => {
