@@ -886,7 +886,9 @@ function parseWgUri(uri) {
     return { error: 'Invalid wg:// URI format' };
   }
 
-  if (url.protocol !== 'wg:') return { error: 'Invalid wg:// URI format: must start with wg://' };
+  if (url.protocol !== 'wg:' && url.protocol !== 'wireguard:') {
+    return { error: 'Invalid wg:// URI format: must start with wg:// or wireguard://' };
+  }
 
   const params = parseWgUriParams(url.search);
   const privateKey = params.private_key;
@@ -1319,7 +1321,7 @@ async function handleAccountImport(request, env) {
   if (!body.config) return errorResponse('Config required');
 
   let result;
-  if (typeof body.config === 'string' && body.config.trim().startsWith('wg://')) {
+  if (typeof body.config === 'string' && /^w(?:g|ireguard):\/\//.test(body.config.trim())) {
     result = parseWgUri(body.config.trim());
   } else if (typeof body.config === 'string') {
     result = parseWireGuardConf(body.config);
