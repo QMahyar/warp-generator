@@ -1578,25 +1578,28 @@ function generateWireGuardConf(configs, amneziaParams = null) {
 // Source: throneproj/Throne src/configs/outbounds/wireguard.cpp
 // Key: local_address and reserved use DASH (-) separator, NOT comma!
 // Key: param names are private_key, public_key (with underscore), NOT pk/peer_pk
+// Key: Throne does NOT URL-decode query values — emit base64 keys RAW.
+//   Base64 chars (A-Z a-z 0-9 + / =) are all URI-safe in query values, none are & # ? % space.
+//   Percent-encoding them (e.g. %2B for +) makes sing-box fail with "illegal base64 data".
 function generateThroneUri(configs, amneziaParams = null) {
   const lines = [];
 
   for (const cfg of configs) {
-    // Qt's QUrlQuery handles URL encoding/decoding automatically
-    const encodedPrivateKey = encodeURIComponent(cfg.private_key);
+    // Raw base64 — do NOT encodeURIComponent (Throne passes query values through undecoded)
+    const privateKey = cfg.private_key;
     // Addresses use DASH separator per Throne's ParseFromLink: rawLocalAddr.split("-")
     const localAddress = `${cfg.addresses.ipv4}-${cfg.addresses.ipv6}`;
-    const encodedPublicKey = encodeURIComponent(cfg.peer_public_key);
+    const publicKey = cfg.peer_public_key;
     const configName = encodeURIComponent(cfg.name);
     // Reserved uses DASH separator per Throne: rawReserved.split("-")
     const reserved = cfg.reserved ? cfg.reserved.join('-') : '0-0-0';
 
     // Base parameters for wg:// URI (Throne/NekoBox/Sing-box format)
-    let uri = `wg://${cfg.endpoint}?private_key=${encodedPrivateKey}&public_key=${encodedPublicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
+    let uri = `wg://${cfg.endpoint}?private_key=${privateKey}&public_key=${publicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
 
     // Add AmneziaWG parameters if present
     if (amneziaParams) {
-      uri = `wg://${cfg.endpoint}?private_key=${encodedPrivateKey}&public_key=${encodedPublicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&enable_amnezia=true&jc=${amneziaParams.Jc}&jmin=${amneziaParams.Jmin}&jmax=${amneziaParams.Jmax}&s1=${amneziaParams.S1}&s2=${amneziaParams.S2}&h1=${amneziaParams.H1}&h2=${amneziaParams.H2}&h3=${amneziaParams.H3}&h4=${amneziaParams.H4}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
+      uri = `wg://${cfg.endpoint}?private_key=${privateKey}&public_key=${publicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&enable_amnezia=true&jc=${amneziaParams.Jc}&jmin=${amneziaParams.Jmin}&jmax=${amneziaParams.Jmax}&s1=${amneziaParams.S1}&s2=${amneziaParams.S2}&h1=${amneziaParams.H1}&h2=${amneziaParams.H2}&h3=${amneziaParams.H3}&h4=${amneziaParams.H4}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
     }
 
     lines.push(uri);
