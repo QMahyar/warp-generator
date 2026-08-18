@@ -1574,20 +1574,29 @@ function generateWireGuardConf(configs, amneziaParams = null) {
 // --- Format Generators (Tasks 12-17) ---
 
 // Task 12: Throne wg:// URI generator (vanilla + Amnezia)
+// Format: wg://host:port?private_key=<key>&public_key=<pub>&local_address=<addr1-addr2>&mtu=<mtu>&reserved=<b1-b2-b3>&persistent_keepalive_interval=25#<name>
+// Source: throneproj/Throne src/configs/outbounds/wireguard.cpp
+// Key: local_address and reserved use DASH (-) separator, NOT comma!
+// Key: param names are private_key, public_key (with underscore), NOT pk/peer_pk
 function generateThroneUri(configs, amneziaParams = null) {
   const lines = [];
 
   for (const cfg of configs) {
+    // Qt's QUrlQuery handles URL encoding/decoding automatically
     const encodedPrivateKey = encodeURIComponent(cfg.private_key);
-    const addressPair = `${cfg.addresses.ipv4}-${cfg.addresses.ipv6}`;
-    const encodedAddress = encodeURIComponent(addressPair);
+    // Addresses use DASH separator per Throne's ParseFromLink: rawLocalAddr.split("-")
+    const localAddress = `${cfg.addresses.ipv4}-${cfg.addresses.ipv6}`;
     const encodedPublicKey = encodeURIComponent(cfg.peer_public_key);
     const configName = encodeURIComponent(cfg.name);
+    // Reserved uses DASH separator per Throne: rawReserved.split("-")
+    const reserved = cfg.reserved ? cfg.reserved.join('-') : '0-0-0';
 
-    let uri = `wg://${cfg.endpoint}?private_key=${encodedPrivateKey}&local_address=${encodedAddress}&mtu=${cfg.mtu}&public_key=${encodedPublicKey}&persistent_keepalive_interval=25#${configName}`;
+    // Base parameters for wg:// URI (Throne/NekoBox/Sing-box format)
+    let uri = `wg://${cfg.endpoint}?private_key=${encodedPrivateKey}&public_key=${encodedPublicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
 
+    // Add AmneziaWG parameters if present
     if (amneziaParams) {
-      uri = `wg://${cfg.endpoint}?private_key=${encodedPrivateKey}&local_address=${encodedAddress}&mtu=${cfg.mtu}&enable_amnezia=true&jc=${amneziaParams.Jc}&jmin=${amneziaParams.Jmin}&jmax=${amneziaParams.Jmax}&s1=${amneziaParams.S1}&s2=${amneziaParams.S2}&h1=${amneziaParams.H1}&h2=${amneziaParams.H2}&h3=${amneziaParams.H3}&h4=${amneziaParams.H4}&public_key=${encodedPublicKey}&persistent_keepalive_interval=25#${configName}`;
+      uri = `wg://${cfg.endpoint}?private_key=${encodedPrivateKey}&public_key=${encodedPublicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&enable_amnezia=true&jc=${amneziaParams.Jc}&jmin=${amneziaParams.Jmin}&jmax=${amneziaParams.Jmax}&s1=${amneziaParams.S1}&s2=${amneziaParams.S2}&h1=${amneziaParams.H1}&h2=${amneziaParams.H2}&h3=${amneziaParams.H3}&h4=${amneziaParams.H4}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
     }
 
     lines.push(uri);
@@ -1596,18 +1605,24 @@ function generateThroneUri(configs, amneziaParams = null) {
   return lines.join('\n');
 }
 
-// Task 13: wireguard:// URI generator (no Amnezia)
+// Task 13: wireguard:// URI generator (v2rayN/Xray format)
+// Format: wireguard://PrivateKey@host:port?publickey=<key>&address=<addrs>&mtu=<mtu>&reserved=<r,g,b>#<name>
+// Source: v2rayN ServiceLib/Handler/Fmt/WireguardFmt.cs
+// Key: all query values are UrlEncode'd; reading uses GetQueryDecoded
+// Key: private key goes in user info part (UrlEncoded)
 function generateWireguardUri(configs) {
   const lines = [];
 
   for (const cfg of configs) {
+    // Private key in user info part, URL-encoded
     const encodedPrivateKey = encodeURIComponent(cfg.private_key);
     const encodedPublicKey = encodeURIComponent(cfg.peer_public_key);
-    const address = encodeURIComponent(cfg.addresses.ipv4);
-    const allowedIps = encodeURIComponent('0.0.0.0/0,::/0');
+    // Addresses are comma-separated and URL-encoded for v2rayN
+    const encodedAddress = encodeURIComponent(`${cfg.addresses.ipv4},${cfg.addresses.ipv6}`);
+    const encodedReserved = encodeURIComponent(cfg.reserved ? cfg.reserved.join(',') : '0,0,0');
     const configName = encodeURIComponent(cfg.name);
 
-    const uri = `wireguard://${encodedPrivateKey}@${cfg.endpoint}?publickey=${encodedPublicKey}&address=${address}&allowedips=${allowedIps}&mtu=${cfg.mtu}#${configName}`;
+    const uri = `wireguard://${encodedPrivateKey}@${cfg.endpoint}?publickey=${encodedPublicKey}&address=${encodedAddress}&mtu=${cfg.mtu}&reserved=${encodedReserved}#${configName}`;
 
     lines.push(uri);
   }
@@ -1616,6 +1631,8 @@ function generateWireguardUri(configs) {
 }
 
 // Task 14: Sing-box JSON generator (legacy outbound format)
+// Note: This uses the legacy outbound format which is still used by Throne, NekoBox, Hiddify, etc.
+// The newer endpoint format (sing-box v1.11+) uses a different structure.
 function generateSingboxJson(configs) {
   const outbounds = configs.map(cfg => ({
     type: 'wireguard',
@@ -1625,8 +1642,10 @@ function generateSingboxJson(configs) {
     local_address: [cfg.addresses.ipv4, cfg.addresses.ipv6],
     private_key: cfg.private_key,
     peer_public_key: cfg.peer_public_key,
+    pre_shared_key: '',
     mtu: cfg.mtu,
-    reserved: cfg.reserved
+    reserved: cfg.reserved,
+    workers: 4
   }));
 
   return JSON.stringify({ outbounds }, null, 2);
@@ -1643,17 +1662,20 @@ function generateXrayJson(configs) {
       peers: [{
         endpoint: cfg.endpoint,
         publicKey: cfg.peer_public_key,
-        keepAlive: 25
+        preSharedKey: '',
+        keepAlive: 25,
+        allowedIPs: ['0.0.0.0/0', '::/0']
       }],
       mtu: cfg.mtu,
-      reserved: cfg.reserved
+      reserved: cfg.reserved,
+      udp: true
     }
   }));
 
   return JSON.stringify({ outbounds }, null, 2);
 }
 
-// Task 16: Clash YAML generator
+// Task 16: Clash YAML generator (Clash Meta / Mihomo format)
 function generateClashYaml(configs) {
   const proxies = configs.map(cfg => ({
     name: cfg.name,
@@ -1664,9 +1686,11 @@ function generateClashYaml(configs) {
     'ipv6': cfg.addresses.ipv6.replace(/\/\d+$/, ''),
     'private-key': cfg.private_key,
     'public-key': cfg.peer_public_key,
+    'allowed-ips': ['0.0.0.0/0', '::/0'],
     udp: true,
     reserved: cfg.reserved,
-    mtu: cfg.mtu
+    mtu: cfg.mtu,
+    'persistent-watch': true
   }));
 
   return YAML.dump({ proxies }, { lineWidth: -1 });
