@@ -626,12 +626,14 @@ function parseCookie(request) {
   return match ? match[1] : null;
 }
 
-function sessionCookie(token, maxAge) {
-  return `${SESSION_COOKIE}=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}; Path=/`;
+function sessionCookie(token, maxAge, isHttps) {
+  const secure = isHttps ? '; Secure' : '';
+  return `${SESSION_COOKIE}=${token}; HttpOnly${secure}; SameSite=Strict; Max-Age=${maxAge}; Path=/`;
 }
 
-function clearSessionCookie() {
-  return `${SESSION_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Path=/`;
+function clearSessionCookie(isHttps) {
+  const secure = isHttps ? '; Secure' : '';
+  return `${SESSION_COOKIE}=; HttpOnly${secure}; SameSite=Strict; Max-Age=0; Path=/`;
 }
 
 async function validateSession(request, env) {
@@ -729,6 +731,7 @@ function validateName(name) {
   if (trimmed.length === 0) return 'Account name required';
   if (trimmed.length > 100) return 'Account name too long (max 100)';
   if (/[\x00-\x1f\x7f]/.test(trimmed)) return 'Account name contains invalid characters';
+  if (/[<>]/.test(trimmed)) return 'Account name contains invalid characters';
   return null;
 }
 
@@ -911,10 +914,11 @@ function parseWgUri(uri) {
   }
 
   const params = parseWgUriParams(url.search);
-  const privateKey = params.private_key;
-  const localAddress = params.local_address;
+  // wireguard:// URIs put private_key in userinfo (before @), not in query params
+  const privateKey = params.private_key || decodeURIComponent(url.username);
+  const localAddress = params.local_address || params.address;
   const mtuParam = params.mtu;
-  const publicKey = params.public_key;
+  const publicKey = params.public_key || params.publickey;
 
   if (!privateKey) return { error: 'Invalid wg:// URI: missing private_key' };
   const privKeyErr = validateBase64Key(privateKey, 'PrivateKey');
@@ -1858,12 +1862,13 @@ async function handleLogin(request, env) {
 
   const { token } = await createSession(env);
   const maxAge = Math.floor(SESSION_DURATION_MS / 1000);
+  const isHttps = new URL(request.url).protocol === 'https:';
 
   return new Response(null, {
     status: 302,
     headers: {
       Location: '/admin',
-      'Set-Cookie': sessionCookie(token, maxAge)
+      'Set-Cookie': sessionCookie(token, maxAge, isHttps)
     }
   });
 }
@@ -1873,12 +1878,13 @@ async function handleLogout(request, env) {
   if (token) {
     await destroySession(token, env);
   }
+  const isHttps = new URL(request.url).protocol === 'https:';
 
   return new Response(null, {
     status: 302,
     headers: {
       Location: '/admin/login',
-      'Set-Cookie': clearSessionCookie()
+      'Set-Cookie': clearSessionCookie(isHttps)
     }
   });
 }
