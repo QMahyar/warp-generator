@@ -180,7 +180,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
           </div>
           <div>
             <label class="block text-sm text-gray-400 mb-1">Endpoint Preset</label>
-            <select id="edit-preset" class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+            <select id="edit-preset" class="w-full px-3 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" onchange="updatePreset()"></select>
           </div>
           <div class="flex gap-2">
             <button onclick="regenerateToken()" class="px-4 py-2 rounded-lg bg-yellow-600/20 text-yellow-400 border border-yellow-600/30 hover:bg-yellow-600/30 text-sm transition-colors">Regenerate Token</button>
@@ -486,6 +486,20 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
           sel.innerHTML = '<option value="" selected>Custom endpoints</option>' + sel.innerHTML;
         }
       } catch (e) {}
+    }
+
+    async function updatePreset() {
+      const sel = document.getElementById('edit-preset');
+      const presetId = sel.value;
+      if (!presetId) return;
+      try {
+        await api('/api/account/' + currentAccountId, {
+          method: 'PUT',
+          body: { endpoint_list: { type: 'preset', preset_id: presetId } }
+        });
+        currentAccount.endpoint_list = { type: 'preset', preset_id: presetId };
+        toast('Preset updated');
+      } catch (e) { toast(e.message, 'error'); }
     }
 
     // Settings
@@ -1839,7 +1853,7 @@ async function handleLogin(request, env) {
       '<div id="error" class="hidden mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm"></div>',
       '<div class="mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm">Invalid password</div>'
     );
-    return htmlResponse(errorPage, 400);
+    return htmlResponse(errorPage, 401);
   }
 
   const { token } = await createSession(env);
