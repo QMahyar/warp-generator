@@ -329,7 +329,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
       grid.innerHTML = accounts.map(a => {
         const created = new Date(a.created_at).toLocaleDateString();
         const tokenShort = a.token.substring(0, 8) + '...';
-        return '<div class="bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors cursor-pointer" onclick="navigate(\\''detail\\', \\'' + a.id + '\\')">' +
+        return '<div class="bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors cursor-pointer" onclick="navigate(\\'detail\\', \\'' + a.id + '\\')">' +
           '<div class="flex items-start justify-between mb-3">' +
             '<h3 class="font-semibold text-sm truncate">' + escHtml(a.name) + '</h3>' +
             '<span class="text-xs text-gray-500">' + created + '</span>' +
@@ -824,7 +824,7 @@ function parseWireGuardConf(text) {
 
     const kvMatch = trimmed.match(/^(\w+)\s*=\s*(.+)$/);
     if (kvMatch) {
-      const key = kvMatch[1];
+      const key = kvMatch[1].toLowerCase();
       const value = kvMatch[2].trim();
       sections[currentSection][key] = value;
     }
@@ -852,6 +852,17 @@ function parseWireGuardConf(text) {
   const publicKey = derivePublicKey(privateKey);
   const mtu = iface['mtu'] ? parseInt(iface['mtu'], 10) : 1280;
 
+  const amneziaOverrides = {};
+  if (iface['jc'] !== undefined) amneziaOverrides.Jc = parseInt(iface['jc'], 10);
+  if (iface['jmin'] !== undefined) amneziaOverrides.Jmin = parseInt(iface['jmin'], 10);
+  if (iface['jmax'] !== undefined) amneziaOverrides.Jmax = parseInt(iface['jmax'], 10);
+  if (iface['s1'] !== undefined) amneziaOverrides.S1 = parseInt(iface['s1'], 10);
+  if (iface['s2'] !== undefined) amneziaOverrides.S2 = parseInt(iface['s2'], 10);
+  if (iface['h1'] !== undefined) amneziaOverrides.H1 = parseInt(iface['h1'], 10);
+  if (iface['h2'] !== undefined) amneziaOverrides.H2 = parseInt(iface['h2'], 10);
+  if (iface['h3'] !== undefined) amneziaOverrides.H3 = parseInt(iface['h3'], 10);
+  if (iface['h4'] !== undefined) amneziaOverrides.H4 = parseInt(iface['h4'], 10);
+
   return {
     config: {
       private_key: privateKey,
@@ -860,7 +871,8 @@ function parseWireGuardConf(text) {
       peer_public_key: peer['publickey'],
       mtu: isNaN(mtu) ? 1280 : mtu,
       reserved: [0, 0, 0]
-    }
+    },
+    amnezia_overrides: Object.keys(amneziaOverrides).length ? amneziaOverrides : null
   };
 }
 
@@ -876,11 +888,11 @@ function parseWgUri(uri) {
 
   if (url.protocol !== 'wg:') return { error: 'Invalid wg:// URI format: must start with wg://' };
 
-  const params = url.searchParams;
-  const privateKey = params.get('private_key');
-  const localAddress = params.get('local_address');
-  const mtuParam = params.get('mtu');
-  const publicKey = params.get('public_key');
+  const params = parseWgUriParams(url.search);
+  const privateKey = params.private_key;
+  const localAddress = params.local_address;
+  const mtuParam = params.mtu;
+  const publicKey = params.public_key;
 
   if (!privateKey) return { error: 'Invalid wg:// URI: missing private_key' };
   const privKeyErr = validateBase64Key(privateKey, 'PrivateKey');
@@ -897,6 +909,13 @@ function parseWgUri(uri) {
   const derivedPublicKey = derivePublicKey(privateKey);
   const mtu = mtuParam ? parseInt(mtuParam, 10) : 1280;
 
+  const amneziaOverrides = {};
+  if (params.enable_amnezia === 'true' || params.enable_amnezia === '1') {
+    if (params.jc !== undefined) amneziaOverrides.Jc = parseInt(params.jc, 10);
+    if (params.jmin !== undefined) amneziaOverrides.Jmin = parseInt(params.jmin, 10);
+    if (params.jmax !== undefined) amneziaOverrides.Jmax = parseInt(params.jmax, 10);
+  }
+
   return {
     config: {
       private_key: privateKey,
@@ -905,8 +924,29 @@ function parseWgUri(uri) {
       peer_public_key: publicKey,
       mtu: isNaN(mtu) ? 1280 : mtu,
       reserved: [0, 0, 0]
-    }
+    },
+    amnezia_overrides: Object.keys(amneziaOverrides).length ? amneziaOverrides : null
   };
+}
+
+function parseWgUriParams(rawQuery) {
+  const params = {};
+  if (!rawQuery) return params;
+  const query = rawQuery.startsWith('?') ? rawQuery.slice(1) : rawQuery;
+  for (const pair of query.split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    const key = pair.slice(0, eq);
+    let value = pair.slice(eq + 1);
+    try {
+      value = decodeURIComponent(value);
+    } catch {
+      // keep raw value on malformed encoding
+    }
+    params[key] = value;
+  }
+  return params;
 }
 
 function parseAddresses(addressStr) {
@@ -1290,6 +1330,11 @@ async function handleAccountImport(request, env) {
   if (result.error) return errorResponse(result.error);
 
   const account = createAccountObject(body.name, result.config);
+  if (result.amnezia_overrides) {
+    const aErr = validateAmneziaSettings(result.amnezia_overrides);
+    if (aErr) return errorResponse(`Invalid Amnezia settings: ${aErr}`);
+    account.amnezia_overrides = result.amnezia_overrides;
+  }
 
   if (!(await storeAccount(env, account))) {
     return errorResponse('Failed to save account', 500);
