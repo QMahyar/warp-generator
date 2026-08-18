@@ -1,0 +1,36 @@
+# Warp Generator — Cursor Rules
+
+This is a single-file Cloudflare Worker. All logic is in `_worker.js` (1867 lines). Do NOT split into modules.
+
+## Stack
+- Cloudflare Workers (ES2022, no Node.js)
+- KV storage only (no D1)
+- Dependencies: bcryptjs, @noble/curves, fflate, js-yaml
+
+## Style
+- camelCase for functions/variables
+- UPPER_SNAKE_CASE for constants
+- async/await (no raw Promises)
+- Early returns, no deep nesting
+
+## KV Keys
+- `account:{uuid}` — accounts
+- `token:{token}` — token mappings
+- `session:{token}` — sessions
+- `settings:password` — bcrypt hash
+- `settings:global` — Amnezia defaults
+- `presets` — endpoint array
+
+## Validation (SPEC.md AC11)
+- Name: 1-100 chars, no control chars
+- Port: 1-65535
+- Password: 8-128 chars
+- Amnezia Jc: 0-200, Jmin/Jmax: 0-1280
+
+## Never
+- Store passwords in plaintext
+- Log private keys or tokens
+- Trust user input without validation
+- Add dependencies without checking bundle size
+
+## See CLAUDE.md for full rules
