@@ -4,5 +4,5 @@ compatibility_date = "2024-01-01"
 compatibility_flags = ["nodejs_compat"]
 
 kv_namespaces = [
-  { binding = "WARP_KV", id = "YOUR_KV_NAMESPACE_ID" }
+  { binding = "WARP_KV", id = "403f8a13d95f47d1af9b1192a5c5a31a" }
 ]

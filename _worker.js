@@ -648,7 +648,10 @@ function htmlResponse(html, status = 200) {
 }
 
 function redirect(location, status = 302) {
-  return Response.redirect(location, status);
+  return new Response(null, {
+    status,
+    headers: { Location: location }
+  });
 }
 
 function jsonResponse(data, status = 200) {
