@@ -27,7 +27,7 @@ const DEFAULT_PRESETS = [
   ]}
 ];
 
-const DEFAULT_AMNEZIA = { Jc: 5, Jmin: 50, Jmax: 1000, S1: 0, S2: 0, H1: 1, H2: 2, H3: 3, H4: 4 };
+const DEFAULT_AMNEZIA = { Jc: 5, Jmin: 50, Jmax: 1000, S1: 0, S2: 0, H1: 0, H2: 0, H3: 0, H4: 0 };
 
 const DEFAULT_SETTINGS_GLOBAL = {
   amnezia: DEFAULT_AMNEZIA
@@ -1548,15 +1548,25 @@ function generateWireGuardConf(configs, amneziaParams = null) {
     content += `MTU = ${cfg.mtu}\n`;
 
     if (amneziaParams) {
-      content += `Jc = ${amneziaParams.Jc}\n`;
-      content += `Jmin = ${amneziaParams.Jmin}\n`;
-      content += `Jmax = ${amneziaParams.Jmax}\n`;
-      content += `S1 = ${amneziaParams.S1}\n`;
-      content += `S2 = ${amneziaParams.S2}\n`;
-      content += `H1 = ${amneziaParams.H1}\n`;
-      content += `H2 = ${amneziaParams.H2}\n`;
-      content += `H3 = ${amneziaParams.H3}\n`;
-      content += `H4 = ${amneziaParams.H4}\n`;
+      // WARP is a plain WireGuard server: S1/S2 padding and H1-H4 magic headers
+      // MUST be unset (they must match the peer, and WARP uses standard WG
+      // headers 1-4). Explicitly setting them to 0 makes amneziawg reject the
+      // config with "magic headers must not overlap". Junk (Jc/Jmin/Jmax) is
+      // client-side only and is safe to emit.
+      // Only write each param when non-zero; skip the whole block if all zero.
+      const p = amneziaParams;
+      const hasAmnezia = [p.Jc, p.Jmin, p.Jmax, p.S1, p.S2, p.H1, p.H2, p.H3, p.H4].some(v => v > 0);
+      if (hasAmnezia) {
+        if (p.Jc > 0) content += `Jc = ${p.Jc}\n`;
+        if (p.Jmin > 0) content += `Jmin = ${p.Jmin}\n`;
+        if (p.Jmax > 0) content += `Jmax = ${p.Jmax}\n`;
+        if (p.S1 > 0) content += `S1 = ${p.S1}\n`;
+        if (p.S2 > 0) content += `S2 = ${p.S2}\n`;
+        if (p.H1 > 0) content += `H1 = ${p.H1}\n`;
+        if (p.H2 > 0) content += `H2 = ${p.H2}\n`;
+        if (p.H3 > 0) content += `H3 = ${p.H3}\n`;
+        if (p.H4 > 0) content += `H4 = ${p.H4}\n`;
+      }
     }
 
     content += `\n[Peer]\n`;
@@ -1595,12 +1605,30 @@ function generateThroneUri(configs, amneziaParams = null) {
     const reserved = cfg.reserved ? cfg.reserved.join('-') : '0-0-0';
 
     // Base parameters for wg:// URI (Throne/NekoBox/Sing-box format)
-    let uri = `wg://${cfg.endpoint}?private_key=${privateKey}&public_key=${publicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
+    let uri = `wg://${cfg.endpoint}?private_key=${privateKey}&public_key=${publicKey}&local_address=${localAddress}&mtu=${cfg.mtu}`;
 
-    // Add AmneziaWG parameters if present
+    // Add AmneziaWG parameters if present. Only emit non-zero params:
+    // WARP is plain WireGuard, so S1/S2 + H1-H4 must stay unset (zero → omitted)
+    // to fall back to standard WG headers; emitting h1=0 breaks amneziawg
+    // with "magic headers must not overlap". Junk (Jc/Jmin/Jmax) is client-only.
     if (amneziaParams) {
-      uri = `wg://${cfg.endpoint}?private_key=${privateKey}&public_key=${publicKey}&local_address=${localAddress}&mtu=${cfg.mtu}&enable_amnezia=true&jc=${amneziaParams.Jc}&jmin=${amneziaParams.Jmin}&jmax=${amneziaParams.Jmax}&s1=${amneziaParams.S1}&s2=${amneziaParams.S2}&h1=${amneziaParams.H1}&h2=${amneziaParams.H2}&h3=${amneziaParams.H3}&h4=${amneziaParams.H4}&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
+      const p = amneziaParams;
+      const parts = [];
+      if (p.Jc > 0) parts.push(`jc=${p.Jc}`);
+      if (p.Jmin > 0) parts.push(`jmin=${p.Jmin}`);
+      if (p.Jmax > 0) parts.push(`jmax=${p.Jmax}`);
+      if (p.S1 > 0) parts.push(`s1=${p.S1}`);
+      if (p.S2 > 0) parts.push(`s2=${p.S2}`);
+      if (p.H1 > 0) parts.push(`h1=${p.H1}`);
+      if (p.H2 > 0) parts.push(`h2=${p.H2}`);
+      if (p.H3 > 0) parts.push(`h3=${p.H3}`);
+      if (p.H4 > 0) parts.push(`h4=${p.H4}`);
+      if (parts.length) {
+        uri += `&enable_amnezia=true&${parts.join('&')}`;
+      }
     }
+
+    uri += `&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
 
     lines.push(uri);
   }
