@@ -270,6 +270,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
       { key: 'throne-amnezia', label: 'Throne wg:// Amnezia', icon: '🔗' },
       { key: 'wireguard-uri', label: 'wireguard:// URI', icon: '🔗' },
       { key: 'singbox', label: 'Sing-box JSON', icon: '{ }' },
+      { key: 'singbox-legacy', label: 'Sing-box Legacy JSON', icon: '{ }' },
       { key: 'xray', label: 'Xray JSON', icon: '{ }' },
       { key: 'clash', label: 'Clash YAML', icon: '~' },
       { key: 'v2rayn', label: 'V2RayN Base64', icon: 'b64' }
@@ -1511,7 +1512,7 @@ async function expandEndpoints(account, env) {
   return {
     configs: endpoints.map(ep => ({
       name: account.name,
-      endpoint: `${ep.ip}:${ep.port}`,
+      endpoint: (() => { const ip = String(ep.ip).replace(/^\[|\]$/g, ''); return ip.includes(':') ? `[${ip}]:${ep.port}` : `${ip}:${ep.port}`; })(),
       ip: ep.ip,
       port: ep.port,
       private_key: account.config.private_key,
@@ -1525,6 +1526,12 @@ async function expandEndpoints(account, env) {
 
 function sanitizeFilename(name) {
   return name.replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
+function amneziaSet(v) {
+  if (v === undefined || v === null || v === '') return false;
+  if (typeof v === 'string') return true;
+  return v > 0;
 }
 
 function resolveAmnezia(account, globalAmnezia) {
@@ -1543,29 +1550,23 @@ function generateWireGuardConf(configs, amneziaParams = null) {
 
     let content = `[Interface]\n`;
     content += `PrivateKey = ${cfg.private_key}\n`;
-    content += `Address = ${cfg.addresses.ipv4}, ${cfg.addresses.ipv6}\n`;
+    content += `Address = ${[cfg.addresses.ipv4, cfg.addresses.ipv6].filter(Boolean).join(', ')}\n`;
     content += `DNS = 1.1.1.1\n`;
     content += `MTU = ${cfg.mtu}\n`;
 
     if (amneziaParams) {
-      // WARP is a plain WireGuard server: S1/S2 padding and H1-H4 magic headers
-      // MUST be unset (they must match the peer, and WARP uses standard WG
-      // headers 1-4). Explicitly setting them to 0 makes amneziawg reject the
-      // config with "magic headers must not overlap". Junk (Jc/Jmin/Jmax) is
-      // client-side only and is safe to emit.
-      // Only write each param when non-zero; skip the whole block if all zero.
       const p = amneziaParams;
-      const hasAmnezia = [p.Jc, p.Jmin, p.Jmax, p.S1, p.S2, p.H1, p.H2, p.H3, p.H4].some(v => v > 0);
+      const hasAmnezia = [p.Jc, p.Jmin, p.Jmax, p.S1, p.S2, p.H1, p.H2, p.H3, p.H4].some(amneziaSet);
       if (hasAmnezia) {
-        if (p.Jc > 0) content += `Jc = ${p.Jc}\n`;
-        if (p.Jmin > 0) content += `Jmin = ${p.Jmin}\n`;
-        if (p.Jmax > 0) content += `Jmax = ${p.Jmax}\n`;
-        if (p.S1 > 0) content += `S1 = ${p.S1}\n`;
-        if (p.S2 > 0) content += `S2 = ${p.S2}\n`;
-        if (p.H1 > 0) content += `H1 = ${p.H1}\n`;
-        if (p.H2 > 0) content += `H2 = ${p.H2}\n`;
-        if (p.H3 > 0) content += `H3 = ${p.H3}\n`;
-        if (p.H4 > 0) content += `H4 = ${p.H4}\n`;
+        if (amneziaSet(p.Jc)) content += `Jc = ${p.Jc}\n`;
+        if (amneziaSet(p.Jmin)) content += `Jmin = ${p.Jmin}\n`;
+        if (amneziaSet(p.Jmax)) content += `Jmax = ${p.Jmax}\n`;
+        if (amneziaSet(p.S1)) content += `S1 = ${p.S1}\n`;
+        if (amneziaSet(p.S2)) content += `S2 = ${p.S2}\n`;
+        if (amneziaSet(p.H1)) content += `H1 = ${p.H1}\n`;
+        if (amneziaSet(p.H2)) content += `H2 = ${p.H2}\n`;
+        if (amneziaSet(p.H3)) content += `H3 = ${p.H3}\n`;
+        if (amneziaSet(p.H4)) content += `H4 = ${p.H4}\n`;
       }
     }
 
@@ -1574,6 +1575,9 @@ function generateWireGuardConf(configs, amneziaParams = null) {
     content += `AllowedIPs = 0.0.0.0/0, ::/0\n`;
     content += `Endpoint = ${cfg.endpoint}\n`;
     content += `PersistentKeepalive = 25\n`;
+    if (cfg.reserved && cfg.reserved.some(b => b > 0)) {
+      content += `# Reserved = ${cfg.reserved.join(',')}\n`;
+    }
 
     files[filename] = textEncoderEncode(content);
   }
@@ -1614,15 +1618,15 @@ function generateThroneUri(configs, amneziaParams = null) {
     if (amneziaParams) {
       const p = amneziaParams;
       const parts = [];
-      if (p.Jc > 0) parts.push(`jc=${p.Jc}`);
-      if (p.Jmin > 0) parts.push(`jmin=${p.Jmin}`);
-      if (p.Jmax > 0) parts.push(`jmax=${p.Jmax}`);
-      if (p.S1 > 0) parts.push(`s1=${p.S1}`);
-      if (p.S2 > 0) parts.push(`s2=${p.S2}`);
-      if (p.H1 > 0) parts.push(`h1=${p.H1}`);
-      if (p.H2 > 0) parts.push(`h2=${p.H2}`);
-      if (p.H3 > 0) parts.push(`h3=${p.H3}`);
-      if (p.H4 > 0) parts.push(`h4=${p.H4}`);
+      if (amneziaSet(p.Jc)) parts.push(`jc=${p.Jc}`);
+      if (amneziaSet(p.Jmin)) parts.push(`jmin=${p.Jmin}`);
+      if (amneziaSet(p.Jmax)) parts.push(`jmax=${p.Jmax}`);
+      if (amneziaSet(p.S1)) parts.push(`s1=${p.S1}`);
+      if (amneziaSet(p.S2)) parts.push(`s2=${p.S2}`);
+      if (amneziaSet(p.H1)) parts.push(`h1=${p.H1}`);
+      if (amneziaSet(p.H2)) parts.push(`h2=${p.H2}`);
+      if (amneziaSet(p.H3)) parts.push(`h3=${p.H3}`);
+      if (amneziaSet(p.H4)) parts.push(`h4=${p.H4}`);
       if (parts.length) {
         uri += `&enable_amnezia=true&${parts.join('&')}`;
       }
@@ -1661,13 +1665,38 @@ function generateWireguardUri(configs) {
   return lines.join('\n');
 }
 
-// Task 14: Sing-box JSON generator (legacy outbound format)
-// Note: This uses the legacy outbound format which is still used by Throne, NekoBox, Hiddify, etc.
-// The newer endpoint format (sing-box v1.11+) uses a different structure.
+// Task 14: Sing-box JSON generator (endpoint format — sing-box v1.11+ / Throne 1.13+)
 function generateSingboxJson(configs) {
+  const endpoints = configs.map(cfg => {
+    const addresses = [cfg.addresses.ipv4, cfg.addresses.ipv6]
+      .filter(Boolean)
+      .map(addr => addr.includes('/') ? addr : addr.includes(':') ? `${addr}/128` : `${addr}/32`);
+    const tag = configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name;
+    return {
+      type: 'wireguard',
+      tag,
+      address: addresses,
+      private_key: cfg.private_key,
+      mtu: cfg.mtu,
+      workers: 4,
+      peers: [{
+        address: cfg.ip,
+        port: cfg.port,
+        public_key: cfg.peer_public_key,
+        allowed_ips: ['0.0.0.0/0', '::/0'],
+        persistent_keepalive_interval: 25
+      }]
+    };
+  });
+  const route = endpoints.length ? { final: endpoints[0].tag } : {};
+  return JSON.stringify({ endpoints, route }, null, 2);
+}
+
+// Legacy sing-box outbound format for NekoBox / Hiddify / sing-box ≤1.10
+function generateSingboxLegacyJson(configs) {
   const outbounds = configs.map(cfg => ({
     type: 'wireguard',
-    tag: cfg.name,
+    tag: configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name,
     server: cfg.ip,
     server_port: cfg.port,
     local_address: [cfg.addresses.ipv4, cfg.addresses.ipv6],
@@ -1678,7 +1707,6 @@ function generateSingboxJson(configs) {
     reserved: cfg.reserved,
     workers: 4
   }));
-
   return JSON.stringify({ outbounds }, null, 2);
 }
 
@@ -1689,7 +1717,7 @@ function generateXrayJson(configs) {
     tag: cfg.name,
     settings: {
       secretKey: cfg.private_key,
-      address: [cfg.addresses.ipv4, cfg.addresses.ipv6],
+      address: [cfg.addresses.ipv4, cfg.addresses.ipv6].filter(Boolean),
       peers: [{
         endpoint: cfg.endpoint,
         publicKey: cfg.peer_public_key,
@@ -1698,8 +1726,7 @@ function generateXrayJson(configs) {
         allowedIPs: ['0.0.0.0/0', '::/0']
       }],
       mtu: cfg.mtu,
-      reserved: cfg.reserved,
-      udp: true
+      reserved: cfg.reserved
     }
   }));
 
@@ -1709,7 +1736,7 @@ function generateXrayJson(configs) {
 // Task 16: Clash YAML generator (Clash Meta / Mihomo format)
 function generateClashYaml(configs) {
   const proxies = configs.map(cfg => ({
-    name: cfg.name,
+    name: configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name,
     type: 'wireguard',
     server: cfg.ip,
     port: cfg.port,
@@ -1719,9 +1746,9 @@ function generateClashYaml(configs) {
     'public-key': cfg.peer_public_key,
     'allowed-ips': ['0.0.0.0/0', '::/0'],
     udp: true,
-    reserved: cfg.reserved,
+    reserved: cfg.reserved ? cfg.reserved.slice() : [0, 0, 0],
     mtu: cfg.mtu,
-    'persistent-watch': true
+    'persistent-keepalive': 25
   }));
 
   return YAML.dump({ proxies }, { lineWidth: -1 });
@@ -1772,6 +1799,7 @@ const FORMATS = {
   'throne-amnezia': { contentType: 'text/plain; charset=utf-8', extension: 'txt', isBinary: false },
   'wireguard-uri': { contentType: 'text/plain; charset=utf-8', extension: 'txt', isBinary: false },
   'singbox': { contentType: 'application/json', extension: 'json', isBinary: false },
+  'singbox-legacy': { contentType: 'application/json', extension: 'json', isBinary: false },
   'xray': { contentType: 'application/json', extension: 'json', isBinary: false },
   'clash': { contentType: 'application/x-yaml; charset=utf-8', extension: 'yaml', isBinary: false },
   'v2rayn': { contentType: 'text/plain; charset=utf-8', extension: 'txt', isBinary: false }
@@ -1837,6 +1865,9 @@ async function handleSubscription(request, env, path) {
     cacheData = body;
   } else if (format === 'singbox') {
     body = generateSingboxJson(configs);
+    cacheData = body;
+  } else if (format === 'singbox-legacy') {
+    body = generateSingboxLegacyJson(configs);
     cacheData = body;
   } else if (format === 'xray') {
     body = generateXrayJson(configs);
