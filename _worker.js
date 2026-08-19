@@ -351,7 +351,7 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
     }
 
     function escHtml(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     function showCreateModal() {
@@ -611,7 +611,10 @@ const DASHBOARD_HTML = `<!DOCTYPE html>
 
 // --- KV Helpers ---
 
+let _kvInitialized = false;
 async function initializeKV(env) {
+  if (_kvInitialized) return;
+  _kvInitialized = true;
   const existing = await env.WARP_KV.get('settings:global');
   if (existing) return;
 
@@ -666,7 +669,7 @@ async function destroySession(token, env) {
 function htmlResponse(html, status = 200) {
   return new Response(html, {
     status,
-    headers: { 'Content-Type': 'text/html;charset=UTF-8' }
+    headers: { 'Content-Type': 'text/html;charset=UTF-8', 'X-Content-Type-Options': 'nosniff' }
   });
 }
 
@@ -680,7 +683,7 @@ function redirect(location, status = 302) {
 function jsonResponse(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' }
+    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' }
   });
 }
 
@@ -1172,11 +1175,48 @@ function validateIPv4OrIPv6OrDomain(ip) {
     for (const p of parts) { if (parseInt(p) > 255) return 'Invalid IPv4 address'; }
     return null;
   }
-  // IPv6 (simplified check)
-  if (ip.includes(':') && /^[\da-fA-F:]+$/.test(ip)) return null;
-  // Domain
-  if (/^[a-zA-Z0-9]([a-zA-Z0-9\-\.]*[a-zA-Z0-9])?$/.test(ip)) return null;
-  return 'Invalid IP address or domain';
+  // IPv6 (including embedded IPv4 like ::ffff:1.2.3.4)
+  let v6 = ip;
+  if (v6.startsWith('[') && v6.endsWith(']')) v6 = v6.slice(1, -1);
+  if (v6.includes(':')) {
+    // Embedded IPv4: last segment contains dots
+    const lastColon = v6.lastIndexOf(':');
+    const lastSeg = v6.slice(lastColon + 1);
+    if (lastSeg.includes('.')) {
+      if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(lastSeg)) return 'Invalid IPv6 address';
+      for (const p of lastSeg.split('.')) { if (parseInt(p) > 255) return 'Invalid IPv6 address'; }
+      const prefix = v6.slice(0, lastColon);
+      if (prefix.length > 0) {
+        if ((prefix.match(/::/g) || []).length > 1) return 'Invalid IPv6 address';
+        const groups = prefix.split(':');
+        const nonEmpty = groups.filter(g => g.length > 0);
+        if (!prefix.includes('::') && nonEmpty.length !== 6) return 'Invalid IPv6 address';
+        for (const g of nonEmpty) {
+          if (g.length > 4 || !/^[0-9a-fA-F]+$/.test(g)) return 'Invalid IPv6 address';
+        }
+      }
+      return null;
+    }
+    // Pure IPv6
+    if ((v6.match(/::/g) || []).length > 1) return 'Invalid IPv6 address';
+    const groups = v6.split(':');
+    if (groups.length > 8) return 'Invalid IPv6 address';
+    const nonEmpty = groups.filter(g => g.length > 0);
+    for (const g of nonEmpty) {
+      if (g.length > 4 || !/^[0-9a-fA-F]+$/.test(g)) return 'Invalid IPv6 address';
+    }
+    if (!v6.includes('::') && nonEmpty.length !== 8) return 'Invalid IPv6 address';
+    return null;
+  }
+  // Domain — each label 1-63 chars, start/end with alphanum
+  if (ip.startsWith('.') || ip.endsWith('.')) return 'Invalid domain';
+  const labels = ip.split('.');
+  if (labels.length < 2) return 'Invalid domain';
+  for (const label of labels) {
+    if (label.length === 0 || label.length > 63) return 'Invalid domain';
+    if (!/^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$/.test(label)) return 'Invalid domain';
+  }
+  return null;
 }
 
 function validatePort(port) {
@@ -1186,8 +1226,14 @@ function validatePort(port) {
   return null;
 }
 
-function validateAmneziaParam(value, name, min, max) {
+function validateAmneziaParam(value, name, min, max, allowRange = false) {
   if (value === undefined || value === null) return null; // optional
+  // Range string support (e.g., '123-456') for H1-H4
+  if (allowRange && typeof value === 'string' && /^\d+-\d+$/.test(value)) {
+    const [lo, hi] = value.split('-').map(Number);
+    if (lo < min || hi > max || lo > hi) return `${name} range invalid (lo<=hi, ${min}-${max})`;
+    return null;
+  }
   const n = Number(value);
   if (!Number.isInteger(n) || n < min || n > max) return `${name} must be ${min}-${max}`;
   return null;
@@ -1201,8 +1247,10 @@ function validateEndpointList(el) {
   }
   if (el.type === 'custom') {
     if (!Array.isArray(el.custom_endpoints)) return 'Invalid custom_endpoints';
+    if (el.custom_endpoints.length > 200) return 'Too many endpoints (max 200)';
     for (let i = 0; i < el.custom_endpoints.length; i++) {
       const ep = el.custom_endpoints[i];
+      if (!ep || typeof ep !== 'object') return `Endpoint ${i + 1}: invalid endpoint`;
       const ipErr = validateIPv4OrIPv6OrDomain(ep.ip);
       if (ipErr) return `Endpoint ${i + 1}: ${ipErr}`;
       const portErr = validatePort(ep.port);
@@ -1216,17 +1264,39 @@ function validateEndpointList(el) {
 function validateAmneziaSettings(a) {
   if (!a || typeof a !== 'object') return 'Invalid Amnezia settings';
   const checks = [
-    validateAmneziaParam(a.Jc, 'Jc', 0, 200),
+    validateAmneziaParam(a.Jc, 'Jc', 0, 128),
     validateAmneziaParam(a.Jmin, 'Jmin', 0, 1280),
     validateAmneziaParam(a.Jmax, 'Jmax', 0, 1280),
     validateAmneziaParam(a.S1, 'S1', 0, 255),
     validateAmneziaParam(a.S2, 'S2', 0, 255),
-    validateAmneziaParam(a.H1, 'H1', 0, 4294967295),
-    validateAmneziaParam(a.H2, 'H2', 0, 4294967295),
-    validateAmneziaParam(a.H3, 'H3', 0, 4294967295),
-    validateAmneziaParam(a.H4, 'H4', 0, 4294967295)
+    validateAmneziaParam(a.H1, 'H1', 0, 2147483647, true),
+    validateAmneziaParam(a.H2, 'H2', 0, 2147483647, true),
+    validateAmneziaParam(a.H3, 'H3', 0, 2147483647, true),
+    validateAmneziaParam(a.H4, 'H4', 0, 2147483647, true)
   ];
   for (const err of checks) { if (err) return err; }
+  // Jmin <= Jmax
+  if (a.Jmin != null && a.Jmax != null && Number(a.Jmin) > Number(a.Jmax)) {
+    return 'Jmin must be <= Jmax';
+  }
+  // H1-H4 overlap check — parse each into [lo,hi] ranges, skip zeros
+  function _parseHRange(v) {
+    if (v == null || v === 0 || v === '0') return null;
+    if (typeof v === 'string' && /^\d+-\d+$/.test(v)) {
+      const [lo, hi] = v.split('-').map(Number);
+      return [lo, hi];
+    }
+    const n = Number(v);
+    return (Number.isInteger(n) && n > 0) ? [n, n] : null;
+  }
+  const hRanges = [a.H1, a.H2, a.H3, a.H4].map(_parseHRange).filter(r => r !== null);
+  for (let i = 0; i < hRanges.length; i++) {
+    for (let j = i + 1; j < hRanges.length; j++) {
+      if (hRanges[i][0] <= hRanges[j][1] && hRanges[j][0] <= hRanges[i][1]) {
+        return 'H1-H4 magic headers must not overlap';
+      }
+    }
+  }
   return null;
 }
 
@@ -1248,8 +1318,10 @@ async function handlePresetCreate(request, env) {
   if (!Array.isArray(body.endpoints) || body.endpoints.length === 0) {
     return errorResponse('At least one endpoint required');
   }
+  if (body.endpoints.length > 200) return errorResponse('Too many endpoints (max 200)');
   for (let i = 0; i < body.endpoints.length; i++) {
     const ep = body.endpoints[i];
+    if (!ep || typeof ep !== 'object') return errorResponse(`Endpoint ${i + 1}: invalid endpoint`);
     const ipErr = validateIPv4OrIPv6OrDomain(ep.ip);
     if (ipErr) return errorResponse(`Endpoint ${i + 1}: ${ipErr}`);
     const portErr = validatePort(ep.port);
@@ -2009,9 +2081,18 @@ async function handleSetup(request, env) {
     return htmlResponse(SETUP_HTML);
   }
 
-  const formData = await request.formData();
-  const password = formData.get('password');
+  let formData;
+  try { formData = await request.formData(); } catch { return errorResponse('Invalid form data', 400); }
 
+  // Setup secret gate — when ADMIN_SETUP_SECRET is set, require it
+  if (env.ADMIN_SETUP_SECRET) {
+    const secret = formData.get('secret') || '';
+    if (secret !== env.ADMIN_SETUP_SECRET) {
+      return errorResponse('Invalid setup secret', 403);
+    }
+  }
+
+  const password = formData.get('password');
   if (!password || password.length < 8 || password.length > 128) {
     const errorPage = SETUP_HTML.replace(
       '<div id="error" class="hidden mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm"></div>',
@@ -2020,7 +2101,8 @@ async function handleSetup(request, env) {
     return htmlResponse(errorPage, 400);
   }
 
-  const hash = await bcrypt.hash(password, BCRYPT_COST);
+  const effectivePassword = password.slice(0, 72);
+  const hash = await bcrypt.hash(effectivePassword, BCRYPT_COST);
   await env.WARP_KV.put('settings:password', hash);
 
   return redirect('/admin/login');
@@ -2031,22 +2113,38 @@ async function handleLogin(request, env) {
     return htmlResponse(LOGIN_HTML);
   }
 
-  const formData = await request.formData();
+  let formData;
+  try { formData = await request.formData(); } catch { return errorResponse('Invalid form data', 400); }
+
   const password = formData.get('password');
+  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
 
   const hash = await env.WARP_KV.get('settings:password');
   if (!hash) {
     return redirect('/admin/setup');
   }
 
-  const valid = await bcrypt.compare(password, hash);
+  // Rate limiting: check failed attempts
+  const failKey = `auth:fail:${ip}`;
+  const fails = parseInt(await env.WARP_KV.get(failKey) || '0', 10);
+  if (fails >= 5) {
+    return errorResponse('Too many login attempts, try again in 15 minutes', 429);
+  }
+
+  const effectivePassword = password ? password.slice(0, 72) : '';
+  const valid = await bcrypt.compare(effectivePassword, hash);
   if (!valid) {
+    // Increment failure counter (15-minute TTL)
+    await env.WARP_KV.put(failKey, String(fails + 1), { expirationTtl: 900 });
     const errorPage = LOGIN_HTML.replace(
       '<div id="error" class="hidden mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm"></div>',
       '<div class="mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm">Invalid password</div>'
     );
     return htmlResponse(errorPage, 401);
   }
+
+  // Clear failure counter on success
+  await env.WARP_KV.delete(failKey).catch(() => {});
 
   const { token } = await createSession(env);
   const maxAge = Math.floor(SESSION_DURATION_MS / 1000);
