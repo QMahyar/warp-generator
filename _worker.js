@@ -786,7 +786,9 @@ async function registerWarpAccount() {
   }
 
   if (response.status === 429) {
-    return { error: 'Warp API rate limited, try again in 60s', status: 503 };
+    const retryAfter = response.headers.get('Retry-After');
+    const seconds = retryAfter ? parseInt(retryAfter, 10) : 60;
+    return { error: `Warp API rate limited, retry after ${Number.isFinite(seconds) ? seconds : 60}s`, status: 503 };
   }
   if (response.status >= 500) {
     return { error: 'Warp API error, try again later', status: 503 };
@@ -808,6 +810,17 @@ async function registerWarpAccount() {
     return { error: 'Warp API returned unexpected response structure', status: 502 };
   }
 
+  // Decode client_id → reserved bytes (3 bytes, base64). Fallback [0,0,0].
+  let reserved = [0, 0, 0];
+  if (config.client_id && typeof config.client_id === 'string') {
+    try {
+      const raw = base64ToBytes(config.client_id);
+      if (raw.length === 3) reserved = [raw[0], raw[1], raw[2]];
+    } catch { /* keep [0,0,0] */ }
+  }
+
+  const peerPublicKey = config.peers[0].public_key || WARP_PEER_PUBLIC_KEY;
+
   return {
     config: {
       private_key: privateKey,
@@ -816,14 +829,21 @@ async function registerWarpAccount() {
         ipv4: config.interface.addresses.v4,
         ipv6: config.interface.addresses.v6
       },
-      peer_public_key: config.peers[0].public_key,
+      peer_public_key: peerPublicKey,
       mtu: 1280,
-      reserved: [0, 0, 0]
+      reserved
     }
   };
 }
 
 // --- Config Parsers (Task 7) ---
+
+function parseAmneziaValue(raw) {
+  const v = String(raw).trim();
+  if (/^\d+-\d+$/.test(v)) return v; // keep 'lo-hi' range string
+  const n = parseInt(v, 10);
+  return Number.isNaN(n) ? null : n;
+}
 
 function parseWireGuardConf(text) {
   if (typeof text !== 'string') return { error: 'Invalid config: not a string' };
@@ -832,6 +852,9 @@ function parseWireGuardConf(text) {
 
   const sections = {};
   let currentSection = null;
+  let hasInterface = false;
+  let hasPeer = false;
+  let skipSection = false;
 
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
@@ -839,12 +862,26 @@ function parseWireGuardConf(text) {
 
     const sectionMatch = trimmed.match(/^\[(\w+)\]$/);
     if (sectionMatch) {
-      currentSection = sectionMatch[1].toLowerCase();
-      if (!sections[currentSection]) sections[currentSection] = {};
+      const name = sectionMatch[1].toLowerCase();
+      skipSection = false;
+      if (name === 'interface') {
+        if (hasInterface) return { error: 'Invalid config: duplicate [Interface] section' };
+        hasInterface = true;
+        currentSection = 'interface';
+        sections['interface'] = {};
+      } else if (name === 'peer') {
+        if (hasPeer) { skipSection = true; continue; }
+        hasPeer = true;
+        currentSection = 'peer';
+        sections['peer'] = {};
+      } else {
+        currentSection = name;
+        if (!sections[name]) sections[name] = {};
+      }
       continue;
     }
 
-    if (!currentSection) continue;
+    if (!currentSection || skipSection) continue;
 
     const kvMatch = trimmed.match(/^(\w+)\s*=\s*(.+)$/);
     if (kvMatch) {
@@ -877,15 +914,33 @@ function parseWireGuardConf(text) {
   const mtu = iface['mtu'] ? parseInt(iface['mtu'], 10) : 1280;
 
   const amneziaOverrides = {};
-  if (iface['jc'] !== undefined) amneziaOverrides.Jc = parseInt(iface['jc'], 10);
-  if (iface['jmin'] !== undefined) amneziaOverrides.Jmin = parseInt(iface['jmin'], 10);
-  if (iface['jmax'] !== undefined) amneziaOverrides.Jmax = parseInt(iface['jmax'], 10);
-  if (iface['s1'] !== undefined) amneziaOverrides.S1 = parseInt(iface['s1'], 10);
-  if (iface['s2'] !== undefined) amneziaOverrides.S2 = parseInt(iface['s2'], 10);
-  if (iface['h1'] !== undefined) amneziaOverrides.H1 = parseInt(iface['h1'], 10);
-  if (iface['h2'] !== undefined) amneziaOverrides.H2 = parseInt(iface['h2'], 10);
-  if (iface['h3'] !== undefined) amneziaOverrides.H3 = parseInt(iface['h3'], 10);
-  if (iface['h4'] !== undefined) amneziaOverrides.H4 = parseInt(iface['h4'], 10);
+  const amneziaKeys = [
+    ['jc', 'Jc'], ['jmin', 'Jmin'], ['jmax', 'Jmax'],
+    ['s1', 'S1'], ['s2', 'S2'],
+    ['h1', 'H1'], ['h2', 'H2'], ['h3', 'H3'], ['h4', 'H4']
+  ];
+  for (const [rawKey, outKey] of amneziaKeys) {
+    if (iface[rawKey] !== undefined) {
+      const v = parseAmneziaValue(iface[rawKey]);
+      if (v !== null) amneziaOverrides[outKey] = v;
+    }
+  }
+
+  // Preserve reserved from [Peer] Reserved = a,b,c or ClientId = <base64>
+  let reserved = [0, 0, 0];
+  if (peer['reserved']) {
+    const bytes = String(peer['reserved']).split(/[\s,]+/).map(s => parseInt(s.trim(), 10));
+    if (bytes.length === 3 && bytes.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
+      reserved = bytes;
+    }
+  } else if (peer['clientid']) {
+    try {
+      const s = String(peer['clientid']);
+      const padded = s.padEnd(Math.ceil(s.length / 4) * 4, '=');
+      const raw = base64ToBytes(padded);
+      if (raw.length === 3) reserved = [raw[0], raw[1], raw[2]];
+    } catch { /* keep [0,0,0] */ }
+  }
 
   return {
     config: {
@@ -894,7 +949,7 @@ function parseWireGuardConf(text) {
       addresses,
       peer_public_key: peer['publickey'],
       mtu: isNaN(mtu) ? 1280 : mtu,
-      reserved: [0, 0, 0]
+      reserved
     },
     amnezia_overrides: Object.keys(amneziaOverrides).length ? amneziaOverrides : null
   };
@@ -902,6 +957,7 @@ function parseWireGuardConf(text) {
 
 function parseWgUri(uri) {
   if (typeof uri !== 'string') return { error: 'Invalid wg:// URI: not a string' };
+  if (uri.length > 10240) return { error: 'Invalid wg:// URI: too large (max 10KB)' };
 
   let url;
   try {
@@ -916,7 +972,9 @@ function parseWgUri(uri) {
 
   const params = parseWgUriParams(url.search);
   // wireguard:// URIs put private_key in userinfo (before @), not in query params
-  const privateKey = params.private_key || decodeURIComponent(url.username);
+  let userKey = url.username;
+  try { userKey = decodeURIComponent(url.username); } catch { /* keep raw */ }
+  const privateKey = params.private_key || userKey;
   const localAddress = params.local_address || params.address;
   const mtuParam = params.mtu;
   const publicKey = params.public_key || params.publickey;
@@ -938,9 +996,31 @@ function parseWgUri(uri) {
 
   const amneziaOverrides = {};
   if (params.enable_amnezia === 'true' || params.enable_amnezia === '1') {
-    if (params.jc !== undefined) amneziaOverrides.Jc = parseInt(params.jc, 10);
-    if (params.jmin !== undefined) amneziaOverrides.Jmin = parseInt(params.jmin, 10);
-    if (params.jmax !== undefined) amneziaOverrides.Jmax = parseInt(params.jmax, 10);
+    const amUriKeys = [['jc', 'Jc'], ['jmin', 'Jmin'], ['jmax', 'Jmax'],
+      ['s1', 'S1'], ['s2', 'S2'], ['h1', 'H1'], ['h2', 'H2'], ['h3', 'H3'], ['h4', 'H4']];
+    for (const [paramKey, outKey] of amUriKeys) {
+      if (params[paramKey] !== undefined) {
+        const v = parseAmneziaValue(params[paramKey]);
+        if (v !== null) amneziaOverrides[outKey] = v;
+      }
+    }
+  }
+
+  // Preserve reserved from query params
+  let reserved = [0, 0, 0];
+  if (params.reserved) {
+    const raw = params.reserved;
+    // Check if comma-separated decimals or base64
+    const decimals = raw.split(',').map(s => parseInt(s.trim(), 10));
+    if (decimals.length === 3 && decimals.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
+      reserved = decimals;
+    } else {
+      try {
+        const padded = raw.padEnd(Math.ceil(raw.length / 4) * 4, '=');
+        const bytes = base64ToBytes(padded);
+        if (bytes.length === 3) reserved = [bytes[0], bytes[1], bytes[2]];
+      } catch { /* keep [0,0,0] */ }
+    }
   }
 
   return {
@@ -950,7 +1030,7 @@ function parseWgUri(uri) {
       addresses,
       peer_public_key: publicKey,
       mtu: isNaN(mtu) ? 1280 : mtu,
-      reserved: [0, 0, 0]
+      reserved
     },
     amnezia_overrides: Object.keys(amneziaOverrides).length ? amneziaOverrides : null
   };
@@ -994,16 +1074,13 @@ function parseAddresses(addressStr) {
 }
 
 function parseAddressPair(addressStr) {
-  const parts = addressStr.split('-').map(s => s.trim()).filter(Boolean);
+  const parts = String(addressStr).split(/[,-]/).map(s => s.trim()).filter(Boolean);
   let ipv4 = null;
   let ipv6 = null;
 
   for (const part of parts) {
-    if (part.includes(':') && part.includes('/')) {
-      ipv6 = part;
-    } else if (part.includes('.')) {
-      ipv4 = part;
-    }
+    if (part.includes(':')) ipv6 = part;       // IPv6 (CIDR optional)
+    else if (part.includes('.')) ipv4 = part;  // IPv4 (CIDR optional)
   }
 
   if (!ipv4 && !ipv6) return { error: 'Invalid wg:// URI: no valid addresses found' };
