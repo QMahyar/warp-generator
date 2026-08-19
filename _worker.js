@@ -1232,6 +1232,14 @@ async function handlePresetUpdate(id, request, env) {
     return errorResponse('Failed to save preset', 500);
   }
 
+  // Invalidate cached subscriptions for accounts using this preset
+  const accounts = await listAccounts(env);
+  for (const acc of accounts) {
+    if (acc.endpoint_list && acc.endpoint_list.type === 'preset' && acc.endpoint_list.preset_id === id) {
+      await invalidateSubscriptionCache(acc.token, env);
+    }
+  }
+
   return jsonResponse(presets[idx]);
 }
 
@@ -1294,6 +1302,10 @@ async function handleAmneziaUpdate(request, env) {
   } catch {
     return errorResponse('Failed to save settings', 500);
   }
+
+  // Invalidate cached subscriptions for all accounts (global amnezia affects all)
+  const accounts = await listAccounts(env);
+  for (const acc of accounts) await invalidateSubscriptionCache(acc.token, env);
 
   return jsonResponse(raw.amnezia);
 }
@@ -1810,10 +1822,17 @@ async function handleSubscription(request, env, path) {
   if (!match) return errorResponse('Invalid subscription URL', 400);
 
   const token = match[1];
-  const format = match[2];
+  const format = match[2].replace(/\/+$/, '');
 
   const formatInfo = FORMATS[format];
   if (!formatInfo) return errorResponse('Unknown format', 404);
+
+  if (request.method !== 'GET') {
+    if (request.method === 'HEAD') {
+      return new Response(null, { status: 200, headers: { 'Content-Type': formatInfo.contentType } });
+    }
+    return errorResponse('Method Not Allowed', 405);
+  }
 
   const resolved = await resolveToken(token, env);
   if (resolved.error) return errorResponse(resolved.error, resolved.status);
@@ -1822,11 +1841,11 @@ async function handleSubscription(request, env, path) {
 
   const cached = await getCachedSubscription(token, format, env);
   if (cached) {
+    const safeName = sanitizeFilename(account.name) || 'warp';
     const headers = {
       'Content-Type': formatInfo.contentType,
-      'Content-Disposition': `attachment; filename*=utf-8''${sanitizeFilename(account.name)}-${format}.${formatInfo.extension}`,
+      'Content-Disposition': `attachment; filename="${safeName}-${format}.${formatInfo.extension}"; filename*=utf-8''${safeName}-${format}.${formatInfo.extension}`,
       'Profile-Update-Interval': '24',
-      'Subscription-Userinfo': 'upload=0; download=0; total=104857600; expire=4102329600',
       'Cache-Control': 'max-age=300'
     };
     const body = formatInfo.isBinary ? Uint8Array.from(atob(cached), c => c.charCodeAt(0)) : cached;
@@ -1837,6 +1856,8 @@ async function handleSubscription(request, env, path) {
   if (expanded.error) return errorResponse(expanded.error, expanded.status);
 
   const configs = expanded.configs;
+  if (configs.length === 0) return errorResponse('Account has no endpoints configured', 500);
+
   let body;
   let cacheData;
 
@@ -1882,13 +1903,17 @@ async function handleSubscription(request, env, path) {
     return errorResponse('Format not implemented', 501);
   }
 
-  await setCachedSubscription(token, format, cacheData, env);
+  try {
+    await setCachedSubscription(token, format, cacheData, env);
+  } catch (e) {
+    console.error('Cache write failed (serving uncached):', e);
+  }
 
+  const safeName = sanitizeFilename(account.name) || 'warp';
   const headers = {
     'Content-Type': formatInfo.contentType,
-    'Content-Disposition': `attachment; filename*=utf-8''${sanitizeFilename(account.name)}-${format}.${formatInfo.extension}`,
+    'Content-Disposition': `attachment; filename="${safeName}-${format}.${formatInfo.extension}"; filename*=utf-8''${safeName}-${format}.${formatInfo.extension}`,
     'Profile-Update-Interval': '24',
-    'Subscription-Userinfo': 'upload=0; download=0; total=104857600; expire=4102329600',
     'Cache-Control': 'max-age=300'
   };
 
