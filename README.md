@@ -1,16 +1,17 @@
 # Warp Generator
 
-A self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configurations and generates VPN client subscriptions in 9 formats.
+A self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configurations and generates VPN client subscriptions in 10 formats.
 
 ## Features
 
 - **Account Management** — Generate new Warp accounts via API or import existing `.conf`/`wg://` configs
-- **9 Subscription Formats** — WireGuard .conf (vanilla + Amnezia), Throne wg://, wireguard://, Sing-box JSON, Xray JSON, Clash YAML, V2RayN base64
-- **Endpoint Presets** — Manage Cloudflare endpoint IP:port pairs (5 defaults included)
-- **Amnezia Obfuscation** — Global defaults + per-account overrides (Jc, Jmin, Jmax, S1, S2, H1-H4)
+- **10 Subscription Formats** — WireGuard .conf (vanilla + Amnezia), Throne wg:// (+Amnezia), wireguard://, Sing-box JSON (endpoint schema + legacy), Xray JSON, Clash YAML, V2RayN base64
+- **Throne/sing-box 1.13 ready** — Sing-box JSON uses the endpoint schema (`address[]` + `peers[]`); legacy outbound format kept as `singbox-legacy` for NekoBox/Hiddify
+- **Endpoint Presets** — Manage Cloudflare endpoint IP:port pairs (5 defaults included; IPv6 endpoints get correct `[brackets]` everywhere)
+- **Amnezia Obfuscation** — Global defaults + per-account overrides (Jc, Jmin, Jmax, S1, S2, H1-H4; range syntax `123-456` supported); zero params are omitted so configs stay WARP-compatible
 - **Admin Dashboard** — SPA UI with account list, subscription URLs, preset editor, settings
-- **Subscription Caching** — 5-minute KV cache with auto-invalidation on account edits
-- **Password Auth** — bcrypt-hashed password, HttpOnly session cookies, 24h expiry
+- **Subscription Caching** — 5-minute KV cache with auto-invalidation on account/preset/Amnezia edits
+- **Password Auth** — bcrypt-hashed password, HttpOnly session cookies, 24h expiry, login rate limiting (5 fails / 15 min)
 
 ## Deployment
 
@@ -55,6 +56,12 @@ A self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configura
    - Visit `https://<your-worker>.workers.dev/admin/setup`
    - Create a password (min 8 characters)
    - You'll be redirected to login
+
+   > **Recommended (prevents setup takeover):** while no password exists, `/admin/setup` is open to anyone. Lock it with a secret:
+   > ```bash
+   > echo "$(openssl rand -hex 16)" | wrangler secret put ADMIN_SETUP_SECRET
+   > ```
+   > The setup form then requires `secret=<value>` (e.g. via curl) until a password is set.
 
 6. **Create your first account:**
    - Login at `/admin`
@@ -110,7 +117,8 @@ All API routes require a valid session cookie (except subscription URLs).
 | Throne wg:// URI | `/sub/{token}/throne` |
 | Throne wg:// Amnezia | `/sub/{token}/throne-amnezia` |
 | wireguard:// URI | `/sub/{token}/wireguard-uri` |
-| Sing-box JSON | `/sub/{token}/singbox` |
+| Sing-box JSON (endpoint schema) | `/sub/{token}/singbox` |
+| Sing-box JSON (legacy outbound) | `/sub/{token}/singbox-legacy` |
 | Xray JSON | `/sub/{token}/xray` |
 | Clash YAML | `/sub/{token}/clash` |
 | V2RayN Base64 | `/sub/{token}/v2rayn` |
@@ -129,32 +137,39 @@ Use [cf-scanner](https://github.com/your-repo/cf-scanner) to find the fastest Wa
 
 | Format | Clients |
 |--------|---------|
-| WireGuard .conf | WireSock, WireGuard,任何 WG 客户端 |
+| WireGuard .conf | WireSock, WireGuard, any WG client |
 | Throne wg:// | Throne VPN |
 | wireguard:// | V2RayN |
-| Sing-box JSON | Hiddify, NekoBox |
+| Sing-box JSON (endpoint) | Throne, sing-box ≥ 1.11 (NekoBox uses legacy; see below) |
+| Sing-box JSON (legacy) | NekoBox, Hiddify, sing-box ≤ 1.10 |
 | Xray JSON | V2RayN (Xray), xray CLI |
-| Clash YAML | Clash Verge, Clash Meta |
+| Clash YAML | Clash Verge, Clash Meta / mihomo |
 | V2RayN Base64 | V2RayN |
 
 ## Amnezia Parameters
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| Jc | 0-200 | 5 | Junk packet count |
+| Jc | 0-128 | 5 | Junk packet count (kernel cap) |
 | Jmin | 0-1280 | 50 | Junk packet min size |
 | Jmax | 0-1280 | 1000 | Junk packet max size |
 | S1 | 0-255 | 0 | Init packet junk size |
 | S2 | 0-255 | 0 | Response packet junk size |
-| H1 | 0-4294967295 | 1 | Init packet magic header |
-| H2 | 0-4294967295 | 2 | Response packet magic header |
-| H3 | 0-4294967295 | 3 | Transport packet magic header |
-| H4 | 0-4294967295 | 4 | Cookie reply magic header |
+| H1 | 0-2147483647 | 0 | Init packet magic header |
+| H2 | 0-2147483647 | 0 | Response packet magic header |
+| H3 | 0-2147483647 | 0 | Transport packet magic header |
+| H4 | 0-2147483647 | 0 | Cookie reply magic header |
+
+### Amnezia semantics (v1.1)
+
+- **Zero/unset params are omitted from output** — WARP is plain WireGuard; H1-H4 must match the peer (WARP uses headers 1-4). Explicit zero headers make amneziawg reject the config (`magic headers must not overlap`) or break framing.
+- **Junk only** (`jc`/`jmin`/`jmax`) is client-side and safe with WARP.
+- **H1-H4 accept ranges** (`123-456`) from imported configs; validation enforces `Jmin <= Jmax` and non-overlapping H1-H4.
 
 ## Troubleshooting
 
 ### "Warp API rate limited"
-Wait 60 seconds and try again. The Warp API limits registration requests.
+Wait for the reported retry window (default 60s, `Retry-After` honored). The Warp API limits registration requests.
 
 ### "Subscription not found"
 The token is invalid or the account was deleted. Regenerate the token from the account detail page.
@@ -167,13 +182,13 @@ No built-in recovery. Delete the password from KV:
 ```bash
 wrangler kv:key delete --namespace-id=<YOUR_ID> "settings:password"
 ```
-Then visit `/admin/setup` to create a new password.
+Then visit `/admin/setup` to create a new password (requires `ADMIN_SETUP_SECRET` if set).
 
 ### Local dev: KV not working
 Make sure you're using `wrangler dev --local` (local persistence). Remote KV bindings don't work in dev mode.
 
 ### Subscription not updating
-Subscriptions are cached for 5 minutes. Edit the account to invalidate cache, or wait.
+Subscriptions are cached for 5 minutes. Edit the account (or its preset / the global Amnezia settings) to invalidate the cache, or just wait.
 
 ## Input Validation
 
@@ -184,23 +199,25 @@ All API endpoints validate inputs per SPEC.md AC11:
 | Account name | 1-100 chars, no control characters |
 | Config import | 100 bytes - 10KB |
 | Private key | Valid base64, 32 bytes decoded |
-| IP/endpoint | Valid IPv4/IPv6 or domain (max 253 chars) |
+| IP/endpoint | Strict IPv4/IPv6 or domain (max 253 chars; label rules) |
+| Endpoints per account/preset | 1-200 |
 | Port | 1-65535 |
-| Jc | 0-200 |
-| Jmin, Jmax | 0-1280 |
+| Jc | 0-128 |
+| Jmin, Jmax | 0-1280, Jmin <= Jmax |
 | S1, S2 | 0-255 |
-| H1-H4 | 0-4294967295 |
-| Password | 8-128 chars |
+| H1-H4 | 0-2147483647 (or `lo-hi` range), non-overlapping |
+| Password | 8-128 chars (bcrypt 72-byte cap) |
 
 Invalid inputs return `400` with a specific error message.
 
 ## Known Limitations
 
 - Warp API is unofficial and may change without notice
-- Free tier: 100k KV reads/day, 1k writes/day, 1GB storage
+- Free tier: 100k KV reads/day, 1k writes/day, 1GB storage (cache writes are best-effort; a failed write never breaks a fetch)
 - No multi-admin support (single password, last-write-wins)
 - No email recovery (manual KV delete required)
 - Subscription tokens are public URLs (standard for VPN subscriptions)
+- Login rate limiting is KV-backed (eventual consistency); add a WAF rule for stricter enforcement
 
 ## License
 
