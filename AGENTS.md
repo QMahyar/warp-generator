@@ -1,7 +1,7 @@
 # Warp Generator — Agent Rules
 
 **Project:** Cloudflare Worker for managing Warp WireGuard configs and subscriptions  
-**Status:** v1.0.0 complete, production-ready
+**Status:** v1.1.0 — production, all audit findings shipped
 
 ---
 
@@ -342,6 +342,14 @@ function validatePort(port) {
 ---
 
 ## Version History
+
+**v1.1.0** (2026-08-19)
+- Deep audit vs official client sources (Throne/v2rayN/sing-box releases); all findings fixed
+- sing-box JSON → endpoint schema (Throne 1.13); new `singbox-legacy` format (NekoBox/Hiddify)
+- IPv6 endpoints bracketed everywhere; Clash unique names + real keepalive; Xray cleanup
+- Real WARP client_id → reserved bytes; range-string Amnezia (H1-H4) support
+- Login rate limit, setup secret gate, strict IP/amnezia validation
+- Cache-write guard + invalidation on preset/settings changes; honest headers
 
 **v1.0.0** (2026-08-18)
 - Initial release
