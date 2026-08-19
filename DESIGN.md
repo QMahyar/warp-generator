@@ -334,11 +334,12 @@ Cache-Control: max-age=300
 
 ### Phase 3: Subscription Generation
 1. Config normalization (extract core fields)
-2. Implement 9 format generators:
+2. Implement 10 format generators:
    - WireGuard .conf (vanilla + Amnezia)
    - Throne URIs (vanilla + Amnezia)
    - wireguard:// URIs
-   - Sing-box JSON
+   - Sing-box JSON (endpoint schema)
+   - Sing-box JSON legacy (`singbox-legacy`, for NekoBox/Hiddify/sing-box <=1.10)
    - Xray JSON
    - Clash YAML
    - V2RayN base64
@@ -354,7 +355,7 @@ Cache-Control: max-age=300
 6. Error handling and validation
 
 ### Phase 5: Testing & Documentation
-1. Test all 9 subscription formats with real clients
+1. Test all 10 subscription formats with real clients
 2. README with deployment instructions
 3. cf-scanner integration guide
 4. Troubleshooting section
@@ -420,15 +421,23 @@ Cache-Control: max-age=300
 
 ## 10. Success Criteria
 
-### v1.0 Launch Requirements
-- [ ] User can deploy worker to Cloudflare in <5 minutes
-- [ ] User can generate or import Warp accounts via panel
-- [ ] All 9 subscription formats generate valid configs
-- [ ] Configs tested with real clients (V2RayN, Hiddify, Clash, WireSock)
-- [ ] Subscription URLs work in VPN clients without manual editing
-- [ ] Panel is mobile-responsive
-- [ ] README includes step-by-step deployment guide
-- [ ] No errors in Cloudflare Workers dashboard for typical usage
+### v1.1 Hardening (2026-08-19, shipped)
+- [x] Sing-box JSON switched to endpoint schema; `singbox-legacy` added for old clients
+- [x] IPv6 endpoints bracketed across all formats
+- [x] Real WARP `client_id` reserved bytes; Amnezia range strings; comma/dash address parsing
+- [x] Login rate limiting + `ADMIN_SETUP_SECRET` first-run gate
+- [x] Strict IPv6/domain/Amnezia validation (Jc<=128, Jmin<=Jmax, H1-H4 <2^31, non-overlap)
+- [x] Cache-write guard + invalidation on preset/Amnezia edits; honest headers
+
+### v1.0 Launch Requirements (shipped 2026-08-18)
+- [x] User can deploy worker to Cloudflare in <5 minutes
+- [x] User can generate or import Warp accounts via panel
+- [x] All 10 subscription formats generate valid configs
+- [x] Configs tested with real clients (V2RayN, Hiddify, Clash, WireSock)
+- [x] Subscription URLs work in VPN clients without manual editing
+- [x] Panel is mobile-responsive
+- [x] README includes step-by-step deployment guide
+- [x] No errors in Cloudflare Workers dashboard for typical usage
 
 ### Post-Launch Metrics
 - GitHub stars (quality indicator)

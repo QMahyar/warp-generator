@@ -903,3 +903,19 @@
 5. Complete Phase 5 (settings & polish) in final session
 
 **Next Step:** Human reviews task list, approves, and we proceed to implementation starting with Task 1.
+
+---
+
+## v1.1.0 — Audit Hardening Round (2026-08-19, all SHIPPED ✔)
+
+- [x] Sing-box JSON → endpoint schema; legacy output moved to `singbox-legacy` format (+FORMATS registry, dashboard, router)
+- [x] IPv6 endpoint bracketing in `expandEndpoints` (covers .conf / wg:// / wireguard:// / Xray)
+- [x] Clash: unique proxy names, `persistent-keepalive: 25`, reserved slice (no YAML anchors)
+- [x] Xray: remove `udp`, filter empty addresses
+- [x] .conf: `Address` no trailing comma; `# Reserved` round-trip comment
+- [x] Amnezia: omit-zero semantics + string range (`123-456`) support in conf + wg:// generators/parsers
+- [x] WARP API: client_id → reserved bytes; 429 Retry-After; WARP_PEER_PUBLIC_KEY fallback
+- [x] Import: comma+dash address pairs, Reserved/ClientId preservation, 10KB URI cap, guarded decode, duplicate-[Interface] error, first-[Peer]-only
+- [x] Pipeline: cache-write try/catch, HEAD/405 method guard, empty-endpoint 500, safe Content-Disposition, trailing-slash format, drop Subscription-Userinfo
+- [x] Invalidation: preset updates + global Amnezia edits clear subscription caches
+- [x] Security: login rate limit (5/15min), ADMIN_SETUP_SECRET gate, strict IPv6/domain validation, Jc≤128, Jmin≤Jmax, H1-H4 <2^31 + non-overlap, null-endpoint guards, endpoint cap 200, escHtml `'`, nosniff

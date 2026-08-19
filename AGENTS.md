@@ -245,10 +245,11 @@ Follow SPEC.md AC11 validation rules:
 - Name: 1-100 chars, no control characters
 - Config (import): 100 bytes - 10KB
 - Private key: valid base64, 32 bytes decoded
-- IP: valid IPv4/IPv6 or domain (max 253 chars)
+- IP: strict IPv4/IPv6 or domain (max 253 chars, IPv6 group/hex rules, per-label domain rules)
 - Port: 1-65535
-- Password: 8-128 chars
-- Amnezia params: Jc: 0-200, Jmin/Jmax: 0-1280, S1/S2: 0-255, H1-H4: 0-4294967295
+- Endpoints per account/preset: 1-200
+- Password: 8-128 chars (bcrypt truncates at 72 bytes)
+- Amnezia params: Jc: 0-128, Jmin/Jmax: 0-1280 (Jmin <= Jmax), S1/S2: 0-255, H1-H4: 0-2147483647 (int or `lo-hi` range, non-overlapping)
 
 **Example:**
 ```javascript
@@ -331,7 +332,7 @@ function validatePort(port) {
 ### Phase 3: Subscriptions
 1. Download .conf ZIP → extracts N files ✓
 2. Import into WireSock → connects successfully ✓
-3. Test all 9 formats → valid output ✓
+3. Test all 10 formats → valid output ✓
 4. Invalid token → 404 ✓
 
 ### Phase 4: Settings
@@ -345,7 +346,7 @@ function validatePort(port) {
 
 **v1.1.0** (2026-08-19)
 - Deep audit vs official client sources (Throne/v2rayN/sing-box releases); all findings fixed
-- sing-box JSON → endpoint schema (Throne 1.13); new `singbox-legacy` format (NekoBox/Hiddify)
+- 10 subscription formats: sing-box JSON → endpoint schema (Throne 1.13); new `singbox-legacy` (NekoBox/Hiddify)
 - IPv6 endpoints bracketed everywhere; Clash unique names + real keepalive; Xray cleanup
 - Real WARP client_id → reserved bytes; range-string Amnezia (H1-H4) support
 - Login rate limit, setup secret gate, strict IP/amnezia validation

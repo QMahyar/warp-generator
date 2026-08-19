@@ -275,3 +275,16 @@ Before marking phase complete:
 ---
 
 **Next Step:** Review this plan, then proceed to Phase 3 (Task Breakdown) to generate detailed task list in `tasks/todo.md`.
+
+---
+
+## v1.1.0 — Audit Hardening (2026-08-19)
+
+**Status:** Shipped. 10-agent audit vs official client sources (Throne, v2rayN, sing-box
+binaries) → 4 sequential fix workers on `fix/audit-v1.1` (branch merged to master), full QA
+harness rerun by parent, deployed (`8859f8bd`). See `reports/` for the audit findings and
+CHANGELOG.md for the release notes.
+
+- Format generators now 10 (singbox endpoint schema + `singbox-legacy`)
+- Validation bounds updated per client/kernel caps (Jc≤128, H1-H4 <2^31, ranges, overlaps)
+- New runtime secret: `ADMIN_SETUP_SECRET` (setup gate, optional)

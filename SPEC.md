@@ -1,14 +1,14 @@
 # Spec: Warp Generator
 
-**Version:** 1.0.0  
-**Date:** 2026-08-18  
-**Status:** Draft (awaiting human approval)
+**Version:** 1.1.0  
+**Date:** 2026-08-19  
+**Status:** Released (v1.0.0 approved 2026-08-18; v1.1.0 audit hardening shipped 2026-08-19)
 
 ---
 
 ## Objective
 
-Build a self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configurations and generates VPN client subscriptions in 9 formats.
+Build a self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configurations and generates VPN client subscriptions in 10 formats.
 
 **User:** Individual who wants to:
 1. Generate or import Warp configs without manual key management
@@ -154,7 +154,7 @@ export default {
 
 **Coverage targets:**
 - All API endpoints return correct status codes
-- All 9 subscription formats generate valid configs
+- All 10 subscription formats generate valid configs
 - Configs tested in at least one client per format
 - Error cases tested (invalid input, Warp API failures, KV failures)
 
@@ -231,7 +231,7 @@ export default {
 - [ ] Cache: Subscriptions cached in KV with 5-minute TTL
 - [ ] Cache invalidation: Editing account clears cache
 
-### Phase 5: Format Generators (9 formats)
+### Phase 5: Format Generators (10 formats)
 - [ ] WireGuard .conf (vanilla): ZIP with N `.conf` files
 - [ ] WireGuard .conf (Amnezia): ZIP with Jc/Jmin/Jmax/S1-S2/H1-H4 in [Interface]
 - [ ] Throne `wg://` (vanilla): Text with one URI per line
@@ -267,6 +267,7 @@ export default {
 - Password < 8 chars: Show error "Password must be at least 8 characters"
 - KV write fails: Show error "Setup failed, try again"
 - Password already set: Redirect to `/admin/login`
+- **v1.1 hardening:** if `ADMIN_SETUP_SECRET` env/secret is set, POSTing to `/admin/setup` requires `secret=<value>` (else 403) until a password exists — prevents first-run takeover
 
 ---
 
@@ -283,6 +284,7 @@ export default {
 - Wrong password: Show error "Invalid password", no redirect
 - KV write fails: Show error "Login failed, try again"
 - Session expired: Redirect to login, show "Session expired"
+- **v1.1 hardening:** login rate limit — 5 failed attempts per client IP → HTTP 429 for 15 min (KV `auth:fail:{ip}`, cleared on success)
 
 ---
 
@@ -445,40 +447,31 @@ H4 = 4
 
 ---
 
-### AC7: Subscription Generation (Sing-box JSON)
+### AC7: Subscription Generation (Sing-box JSON — endpoint schema)
 **Given** account "Home ISP" with 5 endpoints  
 **When** user visits `/sub/{token}/singbox`  
-**Then** worker generates JSON:
+**Then** worker generates the **endpoint schema** (required by sing-box v1.11+ and Throne 1.13+, which removed the legacy outbound):
 ```json
 {
-  "outbounds": [
+  "endpoints": [
     {
       "type": "wireguard",
       "tag": "Home-ISP-engage.cloudflareclient.com-2408",
-      "server": "engage.cloudflareclient.com",
-      "server_port": 2408,
-      "local_address": [
-        "172.16.0.2/32",
-        "2606:4700:110:8d4a:ca6:b507:215:d04f/128"
-      ],
+      "address": ["172.16.0.2/32", "2606:4700:110:8d4a:ca6:b507:215:d04f/128"],
       "private_key": "YNXtAzepDqRv9H52osJVDQnznT5AM11eCK3ESpwSt04=",
-      "peer_public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
       "mtu": 1280,
-      "reserved": [0, 0, 0]
-    },
-    {
-      "type": "wireguard",
-      "tag": "Home-ISP-162.159.192.1-2408",
-      "server": "162.159.192.1",
-      "server_port": 2408,
-      "local_address": ["172.16.0.2/32", "2606:4700:110:8d4a:ca6:b507:215:d04f/128"],
-      "private_key": "YNXtAzepDqRv9H52osJVDQnznT5AM11eCK3ESpwSt04=",
-      "peer_public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
-      "mtu": 1280,
-      "reserved": [0, 0, 0]
+      "workers": 4,
+      "peers": [{
+        "address": "engage.cloudflareclient.com",
+        "port": 2408,
+        "public_key": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+        "allowed_ips": ["0.0.0.0/0", "::/0"],
+        "persistent_keepalive_interval": 25
+      }]
     }
-    // ... 3 more outbounds
-  ]
+    // ... one endpoint per config; bare addresses get /32 or /128 appended; tags unique
+  ],
+  "route": { "final": "Home-ISP-engage.cloudflareclient.com-2408" }
 }
 ```
 **And** returns with headers:
@@ -487,6 +480,7 @@ Content-Type: application/json
 Profile-Update-Interval: 24
 Cache-Control: max-age=300
 ```
+**v1.1:** the legacy outbound schema (`outbounds` with `server`/`local_address`/`peer_public_key`) moved to route `/sub/{token}/singbox-legacy` for NekoBox / Hiddify / sing-box <= 1.10.
 
 ---
 
@@ -583,15 +577,21 @@ Content-Type: application/x-yaml; charset=utf-8
 | `config` (import) | 100 bytes - 10KB |
 | `private_key` | Valid base64, 32 bytes decoded |
 | `public_key` | Valid base64, 32 bytes decoded |
-| `ip` (endpoint) | Valid IPv4/IPv6 or domain (max 253 chars) |
+| `ip` (endpoint) | Strict IPv4/IPv6 or domain (max 253 chars; IPv6 group/hex rules, per-label domain rules) |
 | `port` (endpoint) | 1-65535 |
-| `Jc` | 0-200 |
-| `Jmin`, `Jmax` | 0-1280 |
+| endpoints per account/preset | 1-200 |
+| `Jc` | 0-128 (kernel cap) |
+| `Jmin`, `Jmax` | 0-1280, `Jmin <= Jmax` |
 | `S1`, `S2` | 0-255 |
-| `H1-H4` | 0-4294967295 (uint32) |
-| `password` | 8-128 chars |
+| `H1-H4` | 0-2147483647, integer or `lo-hi` range string; must not overlap pairwise |
+| `password` | 8-128 chars (bcrypt applies 72-byte truncation) |
 
 **Return 400 with specific error message on validation failure.**
+
+### AC11a: Import Normalization (v1.1)
+- `.conf` ([Interface] once, first [Peer] only; `Reserved = a,b,c` / `ClientId = <base64>` preserved; Amnezia ranges `H1 = 123-456` kept as strings)
+- `wg://` / `wireguard://` (10KB cap; comma- or dash-separated address pairs; guarded percent-decoding)
+- WARP API registers store decoded `client_id` → `reserved` bytes (fallback `[0,0,0]`)
 
 ---
 
