@@ -1,7 +1,7 @@
 # Warp Generator — Agent Rules
 
 **Project:** Cloudflare Worker for managing Warp WireGuard configs and subscriptions  
-**Status:** v1.1.0 — production, all audit findings shipped
+**Status:** v1.2.0 — production, UI overhaul shipped
 
 ---
 
@@ -344,6 +344,17 @@ function validatePort(port) {
 
 ## Version History
 
+**v1.2.0** (2026-08-21)
+- Complete admin UI overhaul (3 parallel design agents + integrator + browser QA)
+- New dark design system: glass cards, gradient CTAs, logo tile/favicon, glow background
+- Skeletons/empty states/stat chips/toasts/custom confirm modals/Esc+backdrop modal close
+- show/hide passwords, `?error=` mapped login/setup errors (replaces string-replace injection)
+- Fixed: template-literal escape cooking killed dashboard JS (String.raw); preset route regex
+  only matched UUIDs (404 on `default`/`iran`/`china`); uncaught clipboard rejections;
+  stat chip 0-presets on load; all-sub formats 500 when `default` preset deleted
+  (DEFAULT_PRESETS fallback in expandEndpoints)
+- QA: desktop + mobile 390px matrix green, zero console errors; report in qa-report/FINAL.md
+
 **v1.1.0** (2026-08-19)
 - Deep audit vs official client sources (Throne/v2rayN/sing-box releases); all findings fixed
 - 10 subscription formats: sing-box JSON → endpoint schema (Throne 1.13); new `singbox-legacy` (NekoBox/Hiddify)
@@ -372,5 +383,5 @@ function validatePort(port) {
 
 ---
 
-**Last updated:** 2026-08-18  
+**Last updated:** 2026-08-21  
 **Status:** Production-ready, all 24 tasks complete

@@ -3,26 +3,175 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Warp Generator — Login</title>
+  <title>Warp Generator - Login</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M17 6L10 18h5l-2 8 9-12h-5l2-8z' fill='white'/%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes glowPulse {
+      0%, 100% { opacity: 0.15; }
+      50% { opacity: 0.25; }
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .animate-fade-slide-in {
+      animation: fadeSlideIn 0.5s ease-out both;
+    }
+    .animate-glow-pulse {
+      animation: glowPulse 4s ease-in-out infinite;
+    }
+    .spinner {
+      animation: spin 0.8s linear infinite;
+    }
+  </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center">
-  <div class="bg-gray-900 border border-gray-700 rounded-xl p-8 w-full max-w-md shadow-2xl">
-    <h1 class="text-2xl font-bold mb-2 text-center">Warp Generator</h1>
-    <p class="text-gray-400 text-center mb-6">Sign in to admin panel</p>
-    <form method="POST" action="/admin/login">
-      <div class="mb-4">
-        <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
-        <input type="password" id="password" name="password" required
-          class="w-full px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Enter password">
-      </div>
-      <div id="error" class="hidden mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm"></div>
-      <button type="submit"
-        class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 font-semibold transition-colors">
-        Login
-      </button>
-    </form>
+<body class="bg-[#070b14] text-gray-100 min-h-screen flex items-center justify-center overflow-hidden">
+  <!-- Background glow -->
+  <div class="fixed inset-0 pointer-events-none" aria-hidden="true">
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-600/20 blur-[120px] animate-glow-pulse"></div>
   </div>
+
+  <!-- Login card -->
+  <div class="relative z-10 w-full max-w-md mx-4 animate-fade-slide-in">
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-xl p-8 shadow-2xl shadow-black/40">
+      <!-- Logo + brand -->
+      <div class="flex flex-col items-center mb-8">
+        <div class="w-14 h-14 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/25 mb-4">
+          <svg class="w-7 h-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+          </svg>
+        </div>
+        <h1 class="text-2xl font-bold tracking-tight text-white">Warp Generator</h1>
+        <p class="text-gray-400 text-sm mt-1">Sign in to admin panel</p>
+      </div>
+
+      <!-- Error alert (hidden by default) -->
+      <div id="error" class="hidden mb-5 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-300 text-sm flex items-center gap-2.5" role="alert">
+        <svg class="w-4 h-4 shrink-0 text-red-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        <span id="error-text"></span>
+      </div>
+
+      <!-- Form -->
+      <form method="POST" action="/admin/login" id="login-form">
+        <!-- Password field -->
+        <div class="mb-6">
+          <label for="password" class="block text-sm font-medium text-gray-300 mb-2">Password</label>
+          <div class="relative">
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              autofocus
+              autocomplete="current-password"
+              placeholder="Enter your password"
+              class="w-full px-4 py-3 pr-12 rounded-xl bg-white/5 border border-white/10 text-gray-100 text-sm placeholder:text-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all duration-200"
+            >
+            <button
+              type="button"
+              id="toggle-password"
+              aria-label="Show password"
+              class="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"
+            >
+              <!-- Eye open icon -->
+              <svg id="eye-open" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <!-- Eye closed icon (hidden initially) -->
+              <svg id="eye-closed" class="w-5 h-5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Submit button -->
+        <button
+          type="submit"
+          id="submit-btn"
+          class="w-full py-3 rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-semibold text-sm shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all duration-200 flex items-center justify-center gap-2"
+        >
+          <span id="btn-text">Login</span>
+          <svg id="btn-spinner" class="hidden w-4 h-4 spinner" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-opacity="0.25"/>
+            <path d="M12 2a10 10 0 019.95 9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </form>
+
+      <!-- Session hint -->
+      <p class="text-center text-xs text-gray-600 mt-5">Session lasts 24 hours</p>
+    </div>
+  </div>
+
+  <script>
+    // --- Error handling: read ?error= query param ---
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var code = params.get('error');
+      if (!code) return;
+
+      var messages = {
+        'invalid_password': 'Invalid password. Please try again.',
+        'rate_limited': 'Too many login attempts. Try again in 15 minutes.',
+        'no_password': 'Account not set up yet. Create a password first.',
+        'generic': 'Login failed. Try again.'
+      };
+      var msg = messages[code] || messages['generic'];
+      var errorDiv = document.getElementById('error');
+      var errorText = document.getElementById('error-text');
+      if (errorDiv && errorText) {
+        errorText.textContent = msg;
+        errorDiv.classList.remove('hidden');
+      }
+      // Clean the URL so the error doesn't reappear on refresh
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    })();
+
+    // --- Password show/hide toggle ---
+    (function() {
+      var toggleBtn = document.getElementById('toggle-password');
+      var pwField = document.getElementById('password');
+      var eyeOpen = document.getElementById('eye-open');
+      var eyeClosed = document.getElementById('eye-closed');
+      if (!toggleBtn || !pwField) return;
+
+      toggleBtn.addEventListener('click', function() {
+        var isPassword = pwField.type === 'password';
+        pwField.type = isPassword ? 'text' : 'password';
+        eyeOpen.classList.toggle('hidden', !isPassword);
+        eyeClosed.classList.toggle('hidden', isPassword);
+        toggleBtn.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+        pwField.focus();
+      });
+    })();
+
+    // --- Loading state on submit ---
+    (function() {
+      var form = document.getElementById('login-form');
+      var btn = document.getElementById('submit-btn');
+      var btnText = document.getElementById('btn-text');
+      var spinner = document.getElementById('btn-spinner');
+      if (!form || !btn) return;
+
+      form.addEventListener('submit', function() {
+        btn.disabled = true;
+        btnText.textContent = 'Logging in...';
+        spinner.classList.remove('hidden');
+        btn.classList.add('opacity-70', 'cursor-not-allowed');
+      });
+    })();
+  </script>
 </body>
 </html>

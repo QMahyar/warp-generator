@@ -2,6 +2,24 @@
 
 A self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configurations and generates VPN client subscriptions in 10 formats.
 
+## Admin UI
+
+Modern dark-mode dashboard (Tailwind, fully responsive — desktop and mobile):
+
+| | |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![Account detail](docs/screenshots/detail.png) |
+| ![Settings](docs/screenshots/settings.png) | ![Dashboard mobile](docs/screenshots/dashboard-mobile.png) |
+
+- Glassy header with live stat chips (accounts / presets / formats), skeleton loaders, empty states
+- Account cards with avatar tiles, copyable token chips, Preset/Amnezia badges
+- Detail view: all 10 subscription URLs with copy + open, rename, preset switch, token regeneration
+- Custom confirm modals (no native dialogs), toasts, Esc/backdrop modal handling
+- Preset editor with dynamic endpoint rows; Amnezia defaults with inline validation
+- Show/hide password fields and inline errors on the setup/login pages (`?error=` mapping)
+
+Screenshots: `docs/screenshots/`. Full QA report: `qa-report/FINAL.md`.
+
 ## Features
 
 - **Account Management** — Generate new Warp accounts via API or import existing `.conf`/`wg://` configs
@@ -9,7 +27,7 @@ A self-hosted Cloudflare Worker that manages Cloudflare Warp WireGuard configura
 - **Throne/sing-box 1.13 ready** — Sing-box JSON uses the endpoint schema (`address[]` + `peers[]`); legacy outbound format kept as `singbox-legacy` for NekoBox/Hiddify
 - **Endpoint Presets** — Manage Cloudflare endpoint IP:port pairs (5 defaults included; IPv6 endpoints get correct `[brackets]` everywhere)
 - **Amnezia Obfuscation** — Global defaults + per-account overrides (Jc, Jmin, Jmax, S1, S2, H1-H4; range syntax `123-456` supported); zero params are omitted so configs stay WARP-compatible
-- **Admin Dashboard** — SPA UI with account list, subscription URLs, preset editor, settings
+- **Admin Dashboard** — modern dark-mode SPA: account cards, subscription URLs, preset editor, Amnezia settings, toasts, custom confirm dialogs, stat chips, full mobile responsive
 - **Subscription Caching** — 5-minute KV cache with auto-invalidation on account/preset/Amnezia edits
 - **Password Auth** — bcrypt-hashed password, HttpOnly session cookies, 24h expiry, login rate limiting (5 fails / 15 min)
 

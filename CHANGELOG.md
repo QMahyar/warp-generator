@@ -2,6 +2,46 @@
 
 All notable changes to warp-generator are documented here.
 
+## [1.2.0] — 2026-08-21
+
+Complete admin UI overhaul (5-agent pipeline: 3 parallel UI designers, integrator, browser QA
+via headless Chrome on desktop 1440x900 + mobile 390x844). Full report: `qa-report/FINAL.md`.
+
+### Added
+- **New design system** — deep-navy `#070b14` theme with animated glow, glass cards, blue→cyan
+  gradient buttons, gradient logo tile, inline SVG favicon (all pages)
+- **Setup page** — password strength hint, show/hide password toggles, loading spinner, footer
+  link to login
+- **Login page** — show/hide toggle, loading spinner, session hint; `?error=` mapped messages
+  (invalid password, rate limit, first-run setup)
+- **Dashboard** — sticky glass header, stat chips (accounts/presets/formats), skeleton loaders,
+  empty states with SVG art, avatar-tile account cards with copyable token chips, detail view
+  with 10 subscription URLs (copy + open per row), toast stack with slide-in animations,
+  custom confirm modals replacing native `confirm()`, Esc + backdrop modal close, preset
+  editor with dynamic endpoint rows, Amnezia defaults with inline validation, loading states
+  on every async button, full mobile responsiveness (390px: no overflow)
+- **Error handling** — server-side setup/login errors now redirect with `?error=<code>`,
+  mapped to friendly messages client-side (replaces the fragile class-string `replace()`)
+
+### Fixed
+- **Critical: dashboard script never executed** — escape sequences (`\s`, `\'`) in the embedded
+  inline JS were cooked by the template literal, producing invalid JS (blown `onclick` strings,
+  broken regexes). `DASHBOARD_HTML` is now `String.raw` so served HTML is byte-identical to
+  `html/dashboard.html`
+- **Preset DELETE/PUT 404 for seeded presets** — route regex only matched UUIDs; widened to
+  `[^/]+` (`default`, `iran`, `china` now deletable)
+- **Clipboard copy failed silently on plain-HTTP deploys** — `writeText` rejection now falls
+  back to the `execCommand` path
+- **Stat chip showed "0 presets" on fresh load** — dashboard now fetches presets alongside accounts
+- **All subscriptions 500 after deleting the unused `default` preset** — new accounts reference
+  `preset_id: 'default'`; `expandEndpoints` now falls back to `DEFAULT_PRESETS` when a
+  referenced preset is missing
+
+### QA
+- Desktop + mobile browser matrix (setup, login + error, dashboard, import, detail, regenerate
+  token, delete, presets, Amnezia validation, logout): all pass, zero console errors
+- Screenshots: `docs/screenshots/`, full report: `qa-report/FINAL.md`
+
 ## [1.1.0] — 2026-08-19
 
 Deep audit hardening: all findings from a 10-agent review against official client sources

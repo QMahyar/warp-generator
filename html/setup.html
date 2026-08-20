@@ -3,47 +3,302 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Warp Generator — Setup</title>
+  <title>Warp Generator - Setup</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%233b82f6'/%3E%3Cstop offset='100%25' stop-color='%2306b6d4'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M18.5 5L9 18h6l-1.5 9L23 14h-6z' fill='white' opacity='0.95'/%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @keyframes fade-in {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    @keyframes glow-pulse {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.7; }
+    }
+    .animate-fade-in {
+      animation: fade-in 0.4s ease-out both;
+    }
+    .animate-delay-1 { animation-delay: 0.1s; }
+    .animate-delay-2 { animation-delay: 0.2s; }
+    .strength-bar { transition: width 0.3s ease, background-color 0.3s ease; }
+  </style>
 </head>
-<body class="bg-gray-950 text-gray-100 min-h-screen flex items-center justify-center">
-  <div class="bg-gray-900 border border-gray-700 rounded-xl p-8 w-full max-w-md shadow-2xl">
-    <h1 class="text-2xl font-bold mb-2 text-center">Warp Generator</h1>
-    <p class="text-gray-400 text-center mb-6">Create your admin password</p>
-    <form method="POST" action="/admin/setup" id="setupForm">
-      <div class="mb-4">
-        <label for="password" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
-        <input type="password" id="password" name="password" required minlength="8" maxlength="128"
-          class="w-full px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Min 8 characters">
-      </div>
-      <div class="mb-6">
-        <label for="confirm" class="block text-sm font-medium text-gray-300 mb-1">Confirm Password</label>
-        <input type="password" id="confirm" name="confirm" required minlength="8" maxlength="128"
-          class="w-full px-4 py-2 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          placeholder="Re-enter password">
-      </div>
-      <div id="error" class="hidden mb-4 p-3 rounded-lg bg-red-900/50 border border-red-700 text-red-300 text-sm"></div>
-      <button type="submit"
-        class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 font-semibold transition-colors">
-        Set Password
-      </button>
-    </form>
+<body class="bg-[#070b14] text-gray-100 min-h-screen flex items-center justify-center relative overflow-hidden">
+
+  <!-- Background glow -->
+  <div class="pointer-events-none fixed inset-0 z-0" aria-hidden="true">
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-600/10 blur-[120px]" style="animation: glow-pulse 6s ease-in-out infinite;"></div>
+    <div class="absolute top-1/4 left-1/4 w-[300px] h-[300px] rounded-full bg-cyan-500/5 blur-[100px]"></div>
   </div>
+
+  <div class="relative z-10 w-full max-w-md mx-4">
+
+    <!-- Logo tile + brand -->
+    <div class="flex items-center justify-center gap-3 mb-8 animate-fade-in">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+        <svg class="w-5 h-5 text-white" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path d="M11.5 2L4 12h5.5L7.5 18 14 8H8.5L11.5 2z"/>
+        </svg>
+      </div>
+      <span class="text-lg font-semibold tracking-tight">Warp Generator</span>
+    </div>
+
+    <!-- Card -->
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm p-8 shadow-2xl shadow-black/40 animate-fade-in animate-delay-1">
+      <h1 class="text-xl font-semibold text-center mb-1">Create admin password</h1>
+      <p class="text-sm text-gray-400 text-center mb-6">You only need to do this once</p>
+
+      <form method="POST" action="/admin/setup" id="setupForm" novalidate>
+
+        <!-- Password field -->
+        <div class="mb-4">
+          <label for="password" class="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
+          <div class="relative">
+            <input
+              type="password"
+              id="password"
+              name="password"
+              required
+              minlength="8"
+              maxlength="128"
+              autocomplete="new-password"
+              autofocus
+              class="w-full px-4 py-2.5 pr-11 rounded-xl bg-white/5 border border-white/10 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all"
+              placeholder="Min 8 characters"
+              aria-label="Password"
+            >
+            <button
+              type="button"
+              id="togglePw"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors"
+              aria-label="Toggle password visibility"
+              tabindex="-1"
+            >
+              <svg class="w-5 h-5" id="eyeOpen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg class="w-5 h-5 hidden" id="eyeClosed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+          <!-- Strength indicator -->
+          <div class="mt-2 flex items-center gap-2">
+            <div class="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
+              <div id="strengthBar" class="h-full strength-bar rounded-full bg-gray-500 w-0"></div>
+            </div>
+            <span id="strengthText" class="text-xs text-gray-500 min-w-[60px] text-right"></span>
+          </div>
+        </div>
+
+        <!-- Confirm field -->
+        <div class="mb-5">
+          <label for="confirm" class="block text-sm font-medium text-gray-300 mb-1.5">Confirm password</label>
+          <div class="relative">
+            <input
+              type="password"
+              id="confirm"
+              name="confirm"
+              required
+              minlength="8"
+              maxlength="128"
+              autocomplete="new-password"
+              class="w-full px-4 py-2.5 pr-11 rounded-xl bg-white/5 border border-white/10 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all"
+              placeholder="Re-enter password"
+              aria-label="Confirm password"
+            >
+            <button
+              type="button"
+              id="toggleCf"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors"
+              aria-label="Toggle confirm password visibility"
+              tabindex="-1"
+            >
+              <svg class="w-5 h-5" id="eyeOpenCf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg class="w-5 h-5 hidden" id="eyeClosedCf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Error alert (hidden by default, shown via server redirect or client validation) -->
+        <div id="error" class="hidden mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2" role="alert">
+          <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+          </svg>
+          <span id="errorText"></span>
+        </div>
+
+        <!-- Submit -->
+        <button type="submit" id="submitBtn"
+          class="w-full py-2.5 rounded-xl font-semibold text-sm bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 shadow-lg shadow-blue-500/20 hover:shadow-blue-500/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+          <span id="btnLabel">Set Password</span>
+          <svg id="btnSpinner" class="w-4 h-4 animate-spin hidden" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+
+    <!-- Footer link -->
+    <p class="text-center text-sm text-gray-500 mt-6 animate-fade-in animate-delay-2">
+      Already set up?
+      <a href="/admin/login" class="text-blue-400 hover:text-blue-300 underline underline-offset-2 transition-colors">Go to login</a>
+    </p>
+  </div>
+
   <script>
-    document.getElementById('setupForm').addEventListener('submit', function(e) {
-      const pw = document.getElementById('password').value;
-      const cf = document.getElementById('confirm').value;
-      const err = document.getElementById('error');
+    // ---- Error mapping from query param ----
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var code = params.get('error');
+      if (!code) return;
+      var map = {
+        weak_password: 'Password must be at least 8 characters',
+        invalid_secret: 'Invalid setup secret',
+        generic: 'Setup failed. Try again.'
+      };
+      var msg = map[code] || map['generic'];
+      showError(msg);
+    })();
+
+    function showError(msg) {
+      var el = document.getElementById('error');
+      var txt = document.getElementById('errorText');
+      txt.textContent = msg;
+      el.classList.remove('hidden');
+    }
+
+    function hideError() {
+      var el = document.getElementById('error');
+      el.classList.add('hidden');
+    }
+
+    // ---- Show/hide password toggles ----
+    function wireToggle(btnId, inputId, openId, closedId) {
+      var btn = document.getElementById(btnId);
+      var inp = document.getElementById(inputId);
+      var open = document.getElementById(openId);
+      var closed = document.getElementById(closedId);
+      btn.addEventListener('click', function() {
+        var isPw = inp.type === 'password';
+        inp.type = isPw ? 'text' : 'password';
+        open.classList.toggle('hidden', !isPw);
+        closed.classList.toggle('hidden', isPw);
+      });
+    }
+    wireToggle('togglePw', 'password', 'eyeOpen', 'eyeClosed');
+    wireToggle('toggleCf', 'confirm', 'eyeOpenCf', 'eyeClosedCf');
+
+    // ---- Live password strength bar ----
+    var strengthBar = document.getElementById('strengthBar');
+    var strengthText = document.getElementById('strengthText');
+    var pwInput = document.getElementById('password');
+    var cfInput = document.getElementById('confirm');
+
+    pwInput.addEventListener('input', updateStrength);
+
+    function updateStrength() {
+      var pw = pwInput.value;
+      var len = pw.length;
+      var w = 0;
+      var color = 'bg-gray-500';
+      var label = '';
+      if (len === 0) {
+        w = 0;
+        label = '';
+      } else if (len < 4) {
+        w = 15;
+        color = 'bg-red-500';
+        label = 'Weak';
+      } else if (len < 8) {
+        w = 40;
+        color = 'bg-orange-500';
+        label = 'Fair';
+      } else if (len < 12) {
+        w = 70;
+        color = 'bg-yellow-500';
+        label = 'Good';
+      } else {
+        w = 100;
+        color = 'bg-green-500';
+        label = 'Strong';
+      }
+      // Bonus for mixed chars
+      if (len >= 8) {
+        var hasLower = /[a-z]/.test(pw);
+        var hasUpper = /[A-Z]/.test(pw);
+        var hasDigit = /[0-9]/.test(pw);
+        var hasSpecial = /[^a-zA-Z0-9]/.test(pw);
+        var variety = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) + (hasDigit ? 1 : 0) + (hasSpecial ? 1 : 0);
+        if (variety >= 3 && w < 100) {
+          w = Math.min(w + 15, 100);
+          if (w >= 85) { color = 'bg-green-500'; label = 'Strong'; }
+        }
+      }
+      strengthBar.style.width = w + '%';
+      strengthBar.className = 'h-full strength-bar rounded-full ' + color;
+      strengthText.textContent = label;
+    }
+
+    // ---- Confirm match visual hint ----
+    cfInput.addEventListener('input', function() {
+      var pw = pwInput.value;
+      var cf = cfInput.value;
+      if (cf.length === 0) return;
+      if (pw === cf) {
+        cfInput.classList.remove('border-red-500/50');
+        cfInput.classList.add('border-green-500/50');
+      } else {
+        cfInput.classList.remove('border-green-500/50');
+        cfInput.classList.add('border-red-500/50');
+      }
+    });
+    pwInput.addEventListener('input', function() {
+      if (cfInput.value.length > 0) {
+        cfInput.dispatchEvent(new Event('input'));
+      }
+    });
+
+    // ---- Form submit with client-side validation + loading state ----
+    var form = document.getElementById('setupForm');
+    form.addEventListener('submit', function(e) {
+      hideError();
+      var pw = pwInput.value;
+      var cf = cfInput.value;
+
+      if (pw.length < 8) {
+        e.preventDefault();
+        showError('Password must be at least 8 characters');
+        pwInput.focus();
+        return;
+      }
       if (pw !== cf) {
         e.preventDefault();
-        err.textContent = 'Passwords do not match';
-        err.classList.remove('hidden');
-      } else if (pw.length < 8) {
-        e.preventDefault();
-        err.textContent = 'Password must be at least 8 characters';
-        err.classList.remove('hidden');
+        showError('Passwords do not match');
+        cfInput.focus();
+        return;
       }
+
+      // Show loading state
+      var btn = document.getElementById('submitBtn');
+      var label = document.getElementById('btnLabel');
+      var spinner = document.getElementById('btnSpinner');
+      btn.disabled = true;
+      label.textContent = 'Setting up...';
+      spinner.classList.remove('hidden');
     });
   </script>
 </body>
