@@ -1,6 +1,8 @@
 node_modules/
 .wrangler/
 reports/
-NUL
 dist/
 .playwright-mcp/
+.dev-server.log
+qa-report/
+

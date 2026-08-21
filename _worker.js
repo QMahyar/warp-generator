@@ -5,11 +5,17 @@ import YAML from 'js-yaml';
 
 const SESSION_DURATION_MS = 24 * 60 * 60 * 1000;
 const SESSION_COOKIE = 'session';
-const BCRYPT_COST = 10;
+const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_HASH_BITS = 256;
+const PBKDF2_SALT_BYTES = 16;
+const PASSWORD_MAX_BYTES = 72;
 const WARP_API_VERSION = 'v0a4005';
 const WARP_API_BASE = `https://api.cloudflareclient.com/${WARP_API_VERSION}`;
 const WARP_API_TIMEOUT = 10000;
 const WARP_PEER_PUBLIC_KEY = 'bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=';
+const WG_MTU = 1280;
+const WG_KEEPALIVE = 25;
+const MAX_ENDPOINTS = 200;
 
 const DEFAULT_PRESETS = [
   { id: 'default', name: 'Cloudflare Default', endpoints: [
@@ -167,6 +173,38 @@ const SETUP_HTML = `<!DOCTYPE html>
           </div>
         </div>
 
+        <!-- Setup secret field (optional — only required when server sets ADMIN_SETUP_SECRET) -->
+        <div class="mb-5">
+          <label for="secret" class="block text-sm font-medium text-gray-300 mb-1.5">Setup secret <span class="text-gray-500 font-normal">(if configured)</span></label>
+          <div class="relative">
+            <input
+              type="password"
+              id="secret"
+              name="secret"
+              autocomplete="off"
+              class="w-full px-4 py-2.5 pr-11 rounded-xl bg-white/5 border border-white/10 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all"
+              placeholder="Leave empty if not required"
+              aria-label="Setup secret"
+            >
+            <button
+              type="button"
+              id="toggleSecret"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors"
+              aria-label="Toggle setup secret visibility"
+              tabindex="-1"
+            >
+              <svg class="w-5 h-5" id="eyeOpenSecret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg class="w-5 h-5 hidden" id="eyeClosedSecret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
         <!-- Error alert (hidden by default, shown via server redirect or client validation) -->
         <div id="error" class="hidden mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2" role="alert">
           <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -236,6 +274,7 @@ const SETUP_HTML = `<!DOCTYPE html>
     }
     wireToggle('togglePw', 'password', 'eyeOpen', 'eyeClosed');
     wireToggle('toggleCf', 'confirm', 'eyeOpenCf', 'eyeClosedCf');
+    wireToggle('toggleSecret', 'secret', 'eyeOpenSecret', 'eyeClosedSecret');
 
     // ---- Live password strength bar ----
     var strengthBar = document.getElementById('strengthBar');
@@ -1361,11 +1400,18 @@ let _kvInitialized = false;
 async function initializeKV(env) {
   if (_kvInitialized) return;
   _kvInitialized = true;
-  const existing = await env.WARP_KV.get('settings:global');
-  if (existing) return;
+  const [globalRaw, presetsRaw] = await Promise.all([
+    env.WARP_KV.get('settings:global'),
+    env.WARP_KV.get('presets')
+  ]);
+  if (globalRaw && presetsRaw) return;
 
-  await env.WARP_KV.put('presets', JSON.stringify(DEFAULT_PRESETS));
-  await env.WARP_KV.put('settings:global', JSON.stringify(DEFAULT_SETTINGS_GLOBAL));
+  try {
+    if (!presetsRaw) await env.WARP_KV.put('presets', JSON.stringify(DEFAULT_PRESETS));
+    if (!globalRaw) await env.WARP_KV.put('settings:global', JSON.stringify(DEFAULT_SETTINGS_GLOBAL));
+  } catch {
+    // Non-fatal: handlers fall back to DEFAULT_PRESETS / DEFAULT_SETTINGS_GLOBAL
+  }
 }
 
 // --- Session Helpers ---
@@ -1415,7 +1461,12 @@ async function destroySession(token, env) {
 function htmlResponse(html, status = 200) {
   return new Response(html, {
     status,
-    headers: { 'Content-Type': 'text/html;charset=UTF-8', 'X-Content-Type-Options': 'nosniff' }
+    headers: {
+      'Content-Type': 'text/html;charset=UTF-8',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY',
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; img-src 'self' data:"
+    }
   });
 }
 
@@ -1426,15 +1477,16 @@ function redirect(location, status = 302) {
   });
 }
 
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' }
-  });
+function jsonResponse(data, status = 200, options = {}) {
+  const headers = { 'Content-Type': 'application/json', 'X-Content-Type-Options': 'nosniff' };
+  // Subscription responses manage their own caching headers — skip no-store there
+  if (!options.skipNoStore) headers['Cache-Control'] = 'no-store';
+  if (options.headers) Object.assign(headers, options.headers);
+  return new Response(JSON.stringify(data), { status, headers });
 }
 
-function errorResponse(message, status = 400) {
-  return jsonResponse({ error: message }, status);
+function errorResponse(message, status = 400, options = {}) {
+  return jsonResponse({ error: message }, status, options);
 }
 
 // --- Base64 Helpers ---
@@ -1454,6 +1506,55 @@ function base64ToBytes(b64) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes;
+}
+
+// --- Password Hashing (PBKDF2 via WebCrypto; bcryptjs kept only for legacy migration) ---
+
+async function pbkdf2DeriveBits(password, saltBytes, iterations) {
+  const pwBytes = textEncoderEncode(password);
+  const key = await crypto.subtle.importKey('raw', pwBytes, 'PBKDF2', false, ['deriveBits']);
+  return await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: saltBytes, iterations },
+    key,
+    PBKDF2_HASH_BITS
+  );
+}
+
+function constantTimeEquals(a, b) {
+  let diff = a.length ^ b.length;
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    diff |= (a[i] || 0) ^ (b[i] || 0);
+  }
+  return diff === 0;
+}
+
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(PBKDF2_SALT_BYTES));
+  const bits = await pbkdf2DeriveBits(password, salt, PBKDF2_ITERATIONS);
+  return `pbkdf2$${PBKDF2_ITERATIONS}$${bytesToBase64(salt)}$${bytesToBase64(new Uint8Array(bits))}`;
+}
+
+async function verifyPassword(password, stored) {
+  // Legacy bcrypt hash ($2...) — verify once, caller migrates to PBKDF2 on success
+  if (typeof stored === 'string' && stored.startsWith('$2')) {
+    const valid = await bcrypt.compare(password, stored);
+    return { valid, migratedHash: valid ? await hashPassword(password) : null };
+  }
+
+  const parts = typeof stored === 'string' ? stored.split('$') : [];
+  if (parts.length !== 4 || parts[0] !== 'pbkdf2') return { valid: false };
+  const iterations = parseInt(parts[1], 10);
+  if (!Number.isInteger(iterations) || iterations < 1) return { valid: false };
+  let saltBytes, storedHash;
+  try {
+    saltBytes = base64ToBytes(parts[2]);
+    storedHash = base64ToBytes(parts[3]);
+  } catch {
+    return { valid: false };
+  }
+  const bits = new Uint8Array(await pbkdf2DeriveBits(password, saltBytes, iterations));
+  return { valid: constantTimeEquals(bits, storedHash) };
 }
 
 // --- Keypair Generation (Task 5) ---
@@ -1544,7 +1645,8 @@ async function registerWarpAccount() {
   }
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    return { error: `Warp API error: ${response.status} ${text}`, status: 502 };
+    console.log(`WARP registration failed: ${response.status} ${text}`);
+    return { error: 'WARP registration failed', status: 502 };
   }
 
   let data;
@@ -1559,13 +1661,21 @@ async function registerWarpAccount() {
     return { error: 'Warp API returned unexpected response structure', status: 502 };
   }
 
-  // Decode client_id → reserved bytes (3 bytes, base64). Fallback [0,0,0].
+  // Decode client_id → reserved bytes (3 bytes, base64). [0,0,0] only when field absent.
   let reserved = [0, 0, 0];
   if (config.client_id && typeof config.client_id === 'string') {
+    let raw;
     try {
-      const raw = base64ToBytes(config.client_id);
-      if (raw.length === 3) reserved = [raw[0], raw[1], raw[2]];
-    } catch { /* keep [0,0,0] */ }
+      raw = base64ToBytes(config.client_id);
+    } catch (err) {
+      console.log(`WARP registration: client_id decode failed: ${err.message}`);
+      return { error: 'WARP registration failed', status: 502 };
+    }
+    if (raw.length !== 3) {
+      console.log(`WARP registration: unexpected client_id length ${raw.length}`);
+      return { error: 'WARP registration failed', status: 502 };
+    }
+    reserved = [raw[0], raw[1], raw[2]];
   }
 
   const peerPublicKey = config.peers[0].public_key || WARP_PEER_PUBLIC_KEY;
@@ -1579,7 +1689,7 @@ async function registerWarpAccount() {
         ipv6: config.interface.addresses.v6
       },
       peer_public_key: peerPublicKey,
-      mtu: 1280,
+      mtu: WG_MTU,
       reserved
     }
   };
@@ -1593,6 +1703,14 @@ function parseAmneziaValue(raw) {
   const n = parseInt(v, 10);
   return Number.isNaN(n) ? null : n;
 }
+
+const ALLOWED_INTERFACE_KEYS = new Set([
+  'privatekey', 'address', 'dns', 'mtu', 'listenport',
+  'jc', 'jmin', 'jmax', 's1', 's2', 'h1', 'h2', 'h3', 'h4'
+]);
+const ALLOWED_PEER_KEYS = new Set([
+  'publickey', 'presharedkey', 'allowedips', 'endpoint', 'persistentkeepalive', 'reserved', 'clientid'
+]);
 
 function parseWireGuardConf(text) {
   if (typeof text !== 'string') return { error: 'Invalid config: not a string' };
@@ -1635,6 +1753,12 @@ function parseWireGuardConf(text) {
     const kvMatch = trimmed.match(/^(\w+)\s*=\s*(.+)$/);
     if (kvMatch) {
       const key = kvMatch[1].toLowerCase();
+      if (currentSection === 'interface' && !ALLOWED_INTERFACE_KEYS.has(key)) {
+        return { error: `Invalid config: unknown key "${kvMatch[1]}" in [Interface]` };
+      }
+      if (currentSection === 'peer' && !ALLOWED_PEER_KEYS.has(key)) {
+        return { error: `Invalid config: unknown key "${kvMatch[1]}" in [Peer]` };
+      }
       const value = kvMatch[2].trim();
       sections[currentSection][key] = value;
     }
@@ -1660,7 +1784,7 @@ function parseWireGuardConf(text) {
 
   const privateKey = iface['privatekey'];
   const publicKey = derivePublicKey(privateKey);
-  const mtu = iface['mtu'] ? parseInt(iface['mtu'], 10) : 1280;
+  const mtu = iface['mtu'] ? parseInt(iface['mtu'], 10) : WG_MTU;
 
   const amneziaOverrides = {};
   const amneziaKeys = [
@@ -1681,14 +1805,22 @@ function parseWireGuardConf(text) {
     const bytes = String(peer['reserved']).split(/[\s,]+/).map(s => parseInt(s.trim(), 10));
     if (bytes.length === 3 && bytes.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
       reserved = bytes;
+    } else {
+      return { error: 'Invalid config: Reserved must be exactly 3 bytes (0-255)' };
     }
   } else if (peer['clientid']) {
+    let raw;
     try {
       const s = String(peer['clientid']);
       const padded = s.padEnd(Math.ceil(s.length / 4) * 4, '=');
-      const raw = base64ToBytes(padded);
-      if (raw.length === 3) reserved = [raw[0], raw[1], raw[2]];
-    } catch { /* keep [0,0,0] */ }
+      raw = base64ToBytes(padded);
+    } catch (err) {
+      return { error: `Invalid config: ClientId base64 decode failed (${err.message})` };
+    }
+    if (raw.length !== 3) {
+      return { error: `Invalid config: ClientId must decode to 3 bytes (got ${raw.length})` };
+    }
+    reserved = [raw[0], raw[1], raw[2]];
   }
 
   return {
@@ -1697,7 +1829,7 @@ function parseWireGuardConf(text) {
       public_key: publicKey,
       addresses,
       peer_public_key: peer['publickey'],
-      mtu: isNaN(mtu) ? 1280 : mtu,
+      mtu: isNaN(mtu) ? WG_MTU : mtu,
       reserved
     },
     amnezia_overrides: Object.keys(amneziaOverrides).length ? amneziaOverrides : null
@@ -1741,7 +1873,7 @@ function parseWgUri(uri) {
   if (addresses.error) return { error: addresses.error };
 
   const derivedPublicKey = derivePublicKey(privateKey);
-  const mtu = mtuParam ? parseInt(mtuParam, 10) : 1280;
+  const mtu = mtuParam ? parseInt(mtuParam, 10) : WG_MTU;
 
   const amneziaOverrides = {};
   if (params.enable_amnezia === 'true' || params.enable_amnezia === '1') {
@@ -1764,11 +1896,17 @@ function parseWgUri(uri) {
     if (decimals.length === 3 && decimals.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
       reserved = decimals;
     } else {
+      let bytes;
       try {
         const padded = raw.padEnd(Math.ceil(raw.length / 4) * 4, '=');
-        const bytes = base64ToBytes(padded);
-        if (bytes.length === 3) reserved = [bytes[0], bytes[1], bytes[2]];
-      } catch { /* keep [0,0,0] */ }
+        bytes = base64ToBytes(padded);
+      } catch (err) {
+        return { error: `Invalid wg:// URI: reserved base64 decode failed (${err.message})` };
+      }
+      if (bytes.length !== 3) {
+        return { error: `Invalid wg:// URI: reserved must decode to 3 bytes (got ${bytes.length})` };
+      }
+      reserved = [bytes[0], bytes[1], bytes[2]];
     }
   }
 
@@ -1778,7 +1916,7 @@ function parseWgUri(uri) {
       public_key: derivedPublicKey,
       addresses,
       peer_public_key: publicKey,
-      mtu: isNaN(mtu) ? 1280 : mtu,
+      mtu: isNaN(mtu) ? WG_MTU : mtu,
       reserved
     },
     amnezia_overrides: Object.keys(amneziaOverrides).length ? amneziaOverrides : null
@@ -1805,16 +1943,39 @@ function parseWgUriParams(rawQuery) {
   return params;
 }
 
+function isValidIpv4Part(part) {
+  const m = part.match(/^(\d{1,3})(\.\d{1,3}){3}(\/(3[0-2]|[12]?\d))?$/);
+  if (!m) return false;
+  return part.split('/')[0].split('.').every(o => Number(o) <= 255);
+}
+
+function isValidIpv6Part(part) {
+  if (!part.includes(':')) return false;
+  let addr = part;
+  if (part.includes('/')) {
+    const slash = part.lastIndexOf('/');
+    const cidr = part.slice(slash + 1);
+    if (!/^\d{1,3}$/.test(cidr) || Number(cidr) > 128) return false;
+    addr = part.slice(0, slash);
+  }
+  if ((addr.match(/::/g) || []).length > 1) return false;
+  if (!addr.includes('::') && (addr.startsWith(':') || addr.endsWith(':'))) return false;
+  return addr.split(':').every(g => g === '' || /^[0-9a-fA-F]{1,4}$/.test(g));
+}
+
 function parseAddresses(addressStr) {
   const parts = addressStr.split(',').map(s => s.trim()).filter(Boolean);
   let ipv4 = null;
   let ipv6 = null;
 
   for (const part of parts) {
-    if (part.includes(':') && part.includes('/')) {
+    if (part.includes(':')) {
+      if (!isValidIpv6Part(part)) return { error: `Invalid config: invalid IPv6 address "${part}"` };
       ipv6 = part;
-    } else if (part.includes('.')) {
+    } else if (isValidIpv4Part(part)) {
       ipv4 = part;
+    } else {
+      return { error: `Invalid config: invalid IP address "${part}"` };
     }
   }
 
@@ -1828,8 +1989,14 @@ function parseAddressPair(addressStr) {
   let ipv6 = null;
 
   for (const part of parts) {
-    if (part.includes(':')) ipv6 = part;       // IPv6 (CIDR optional)
-    else if (part.includes('.')) ipv4 = part;  // IPv4 (CIDR optional)
+    if (part.includes(':')) {
+      if (!isValidIpv6Part(part)) return { error: `Invalid wg:// URI: invalid IPv6 address "${part}"` };
+      ipv6 = part;                               // IPv6 (CIDR optional)
+    } else if (isValidIpv4Part(part)) {
+      ipv4 = part;                               // IPv4 (CIDR optional)
+    } else {
+      return { error: `Invalid wg:// URI: invalid IP address "${part}"` };
+    }
   }
 
   if (!ipv4 && !ipv6) return { error: 'Invalid wg:// URI: no valid addresses found' };
@@ -1993,7 +2160,7 @@ function validateEndpointList(el) {
   }
   if (el.type === 'custom') {
     if (!Array.isArray(el.custom_endpoints)) return 'Invalid custom_endpoints';
-    if (el.custom_endpoints.length > 200) return 'Too many endpoints (max 200)';
+    if (el.custom_endpoints.length > MAX_ENDPOINTS) return `Too many endpoints (max ${MAX_ENDPOINTS})`;
     for (let i = 0; i < el.custom_endpoints.length; i++) {
       const ep = el.custom_endpoints[i];
       if (!ep || typeof ep !== 'object') return `Endpoint ${i + 1}: invalid endpoint`;
@@ -2043,7 +2210,21 @@ function validateAmneziaSettings(a) {
       }
     }
   }
+  // H1-H4 all-or-none: any nonzero header requires all four set and pairwise distinct
+  const hasAnyH = [a.H1, a.H2, a.H3, a.H4].some(v => !_isZeroH(v));
+  if (hasAnyH) {
+    const missing = [a.H1, a.H2, a.H3, a.H4].some(_isZeroH);
+    if (missing) return 'H1-H4 must all be set together (all-or-none)';
+    const lows = hRanges.map(r => r[0]);
+    if (new Set(lows).size !== lows.length) {
+      return 'H1-H4 magic headers must be pairwise distinct';
+    }
+  }
   return null;
+}
+
+function _isZeroH(v) {
+  return v == null || v === 0 || v === '' || v === '0';
 }
 
 // --- Preset Management API (Task 20) ---
@@ -2051,6 +2232,22 @@ function validateAmneziaSettings(a) {
 async function handlePresetList(env) {
   const raw = await env.WARP_KV.get('presets', { type: 'json' });
   return jsonResponse(raw || DEFAULT_PRESETS);
+}
+
+function validatePresetEndpoints(endpoints) {
+  if (!Array.isArray(endpoints) || endpoints.length === 0) {
+    return 'At least one endpoint required';
+  }
+  if (endpoints.length > MAX_ENDPOINTS) return `Too many endpoints (max ${MAX_ENDPOINTS})`;
+  for (let i = 0; i < endpoints.length; i++) {
+    const ep = endpoints[i];
+    if (!ep || typeof ep !== 'object') return `Endpoint ${i + 1}: invalid endpoint`;
+    const ipErr = validateIPv4OrIPv6OrDomain(ep.ip);
+    if (ipErr) return `Endpoint ${i + 1}: ${ipErr}`;
+    const portErr = validatePort(ep.port);
+    if (portErr) return `Endpoint ${i + 1}: ${portErr}`;
+  }
+  return null;
 }
 
 async function handlePresetCreate(request, env) {
@@ -2061,18 +2258,8 @@ async function handlePresetCreate(request, env) {
     return errorResponse('Preset name required');
   }
   if (body.name.length > 100) return errorResponse('Preset name too long (max 100)');
-  if (!Array.isArray(body.endpoints) || body.endpoints.length === 0) {
-    return errorResponse('At least one endpoint required');
-  }
-  if (body.endpoints.length > 200) return errorResponse('Too many endpoints (max 200)');
-  for (let i = 0; i < body.endpoints.length; i++) {
-    const ep = body.endpoints[i];
-    if (!ep || typeof ep !== 'object') return errorResponse(`Endpoint ${i + 1}: invalid endpoint`);
-    const ipErr = validateIPv4OrIPv6OrDomain(ep.ip);
-    if (ipErr) return errorResponse(`Endpoint ${i + 1}: ${ipErr}`);
-    const portErr = validatePort(ep.port);
-    if (portErr) return errorResponse(`Endpoint ${i + 1}: ${portErr}`);
-  }
+  const epErr = validatePresetEndpoints(body.endpoints);
+  if (epErr) return errorResponse(epErr);
 
   const raw = await env.WARP_KV.get('presets', { type: 'json' });
   const presets = raw || [...DEFAULT_PRESETS];
@@ -2108,16 +2295,8 @@ async function handlePresetUpdate(id, request, env) {
   }
 
   if (body.endpoints !== undefined) {
-    if (!Array.isArray(body.endpoints) || body.endpoints.length === 0) {
-      return errorResponse('At least one endpoint required');
-    }
-    for (let i = 0; i < body.endpoints.length; i++) {
-      const ep = body.endpoints[i];
-      const ipErr = validateIPv4OrIPv6OrDomain(ep.ip);
-      if (ipErr) return errorResponse(`Endpoint ${i + 1}: ${ipErr}`);
-      const portErr = validatePort(ep.port);
-      if (portErr) return errorResponse(`Endpoint ${i + 1}: ${portErr}`);
-    }
+    const epErr = validatePresetEndpoints(body.endpoints);
+    if (epErr) return errorResponse(epErr);
     presets[idx].endpoints = body.endpoints;
   }
 
@@ -2128,12 +2307,7 @@ async function handlePresetUpdate(id, request, env) {
   }
 
   // Invalidate cached subscriptions for accounts using this preset
-  const accounts = await listAccounts(env);
-  for (const acc of accounts) {
-    if (acc.endpoint_list && acc.endpoint_list.type === 'preset' && acc.endpoint_list.preset_id === id) {
-      await invalidateSubscriptionCache(acc.token, env);
-    }
-  }
+  await bumpCacheVersion(env);
 
   return jsonResponse(presets[idx]);
 }
@@ -2199,8 +2373,7 @@ async function handleAmneziaUpdate(request, env) {
   }
 
   // Invalidate cached subscriptions for all accounts (global amnezia affects all)
-  const accounts = await listAccounts(env);
-  for (const acc of accounts) await invalidateSubscriptionCache(acc.token, env);
+  await bumpCacheVersion(env);
 
   return jsonResponse(raw.amnezia);
 }
@@ -2325,7 +2498,7 @@ async function handleAccountUpdate(id, request, env) {
     return errorResponse('Failed to save account', 500);
   }
 
-  await invalidateSubscriptionCache(account.token, env);
+  await bumpCacheVersion(env);
 
   return jsonResponse(sanitizeAccount(account));
 }
@@ -2334,7 +2507,7 @@ async function handleAccountDelete(id, env) {
   const account = await getAccount(env, id);
   if (!account) return errorResponse('Account not found', 404);
 
-  await invalidateSubscriptionCache(account.token, env);
+  await bumpCacheVersion(env);
 
   if (!(await deleteAccount(env, account))) {
     return errorResponse('Failed to delete account', 500);
@@ -2348,7 +2521,7 @@ async function handleAccountRegenerateToken(id, env) {
   if (!account) return errorResponse('Account not found', 404);
 
   const oldToken = account.token;
-  await invalidateSubscriptionCache(oldToken, env);
+  await bumpCacheVersion(env);
   account.token = crypto.randomUUID();
 
   try {
@@ -2419,8 +2592,14 @@ async function expandEndpoints(account, env) {
     endpoints = account.endpoint_list.custom_endpoints;
   }
 
-  return {
-    configs: endpoints.map(ep => ({
+  // Dedupe by ip:port once here so proxy/outbound names can't collide in ANY format
+  const seen = new Set();
+  const configs = [];
+  for (const ep of endpoints) {
+    const key = `${ep.ip}:${ep.port}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    configs.push({
       name: account.name,
       endpoint: (() => { const ip = String(ep.ip).replace(/^\[|\]$/g, ''); return ip.includes(':') ? `[${ip}]:${ep.port}` : `${ip}:${ep.port}`; })(),
       ip: ep.ip,
@@ -2430,8 +2609,10 @@ async function expandEndpoints(account, env) {
       peer_public_key: account.config.peer_public_key,
       mtu: account.config.mtu,
       reserved: account.config.reserved
-    }))
-  };
+    });
+  }
+
+  return { configs };
 }
 
 function sanitizeFilename(name) {
@@ -2440,8 +2621,9 @@ function sanitizeFilename(name) {
 
 function amneziaSet(v) {
   if (v === undefined || v === null || v === '') return false;
-  if (typeof v === 'string') return true;
-  return v > 0;
+  if (typeof v === 'string' && /^\d+-\d+$/.test(v)) return true; // range string counts as set
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0;
 }
 
 function resolveAmnezia(account, globalAmnezia) {
@@ -2484,7 +2666,7 @@ function generateWireGuardConf(configs, amneziaParams = null) {
     content += `PublicKey = ${cfg.peer_public_key}\n`;
     content += `AllowedIPs = 0.0.0.0/0, ::/0\n`;
     content += `Endpoint = ${cfg.endpoint}\n`;
-    content += `PersistentKeepalive = 25\n`;
+    content += `PersistentKeepalive = ${WG_KEEPALIVE}\n`;
     if (cfg.reserved && cfg.reserved.some(b => b > 0)) {
       content += `# Reserved = ${cfg.reserved.join(',')}\n`;
     }
@@ -2512,7 +2694,7 @@ function generateThroneUri(configs, amneziaParams = null) {
     // Raw base64 — do NOT encodeURIComponent (Throne passes query values through undecoded)
     const privateKey = cfg.private_key;
     // Addresses use DASH separator per Throne's ParseFromLink: rawLocalAddr.split("-")
-    const localAddress = `${cfg.addresses.ipv4}-${cfg.addresses.ipv6}`;
+    const localAddress = [cfg.addresses.ipv4, cfg.addresses.ipv6].filter(Boolean).join('-');
     const publicKey = cfg.peer_public_key;
     const configName = encodeURIComponent(cfg.name);
     // Reserved uses DASH separator per Throne: rawReserved.split("-")
@@ -2521,28 +2703,22 @@ function generateThroneUri(configs, amneziaParams = null) {
     // Base parameters for wg:// URI (Throne/NekoBox/Sing-box format)
     let uri = `wg://${cfg.endpoint}?private_key=${privateKey}&public_key=${publicKey}&local_address=${localAddress}&mtu=${cfg.mtu}`;
 
-    // Add AmneziaWG parameters if present. Only emit non-zero params:
-    // WARP is plain WireGuard, so S1/S2 + H1-H4 must stay unset (zero → omitted)
-    // to fall back to standard WG headers; emitting h1=0 breaks amneziawg
-    // with "magic headers must not overlap". Junk (Jc/Jmin/Jmax) is client-only.
+    // Add AmneziaWG parameters if present. Throne wg:// Amnezia gets junk params
+    // (Jc/Jmin/Jmax) only, as plain ints — range strings are skipped. S1/S2 + H1-H4
+    // corrupt handshakes against vanilla WARP and are never emitted here.
     if (amneziaParams) {
       const p = amneziaParams;
       const parts = [];
-      if (amneziaSet(p.Jc)) parts.push(`jc=${p.Jc}`);
-      if (amneziaSet(p.Jmin)) parts.push(`jmin=${p.Jmin}`);
-      if (amneziaSet(p.Jmax)) parts.push(`jmax=${p.Jmax}`);
-      if (amneziaSet(p.S1)) parts.push(`s1=${p.S1}`);
-      if (amneziaSet(p.S2)) parts.push(`s2=${p.S2}`);
-      if (amneziaSet(p.H1)) parts.push(`h1=${p.H1}`);
-      if (amneziaSet(p.H2)) parts.push(`h2=${p.H2}`);
-      if (amneziaSet(p.H3)) parts.push(`h3=${p.H3}`);
-      if (amneziaSet(p.H4)) parts.push(`h4=${p.H4}`);
+      for (const [key, value] of [['jc', p.Jc], ['jmin', p.Jmin], ['jmax', p.Jmax]]) {
+        if (typeof value === 'string' && value.includes('-')) continue;
+        if (amneziaSet(value)) parts.push(`${key}=${value}`);
+      }
       if (parts.length) {
         uri += `&enable_amnezia=true&${parts.join('&')}`;
       }
     }
 
-    uri += `&persistent_keepalive_interval=25&reserved=${reserved}#${configName}`;
+    uri += `&persistent_keepalive_interval=${WG_KEEPALIVE}&reserved=${reserved}#${configName}`;
 
     lines.push(uri);
   }
@@ -2594,7 +2770,8 @@ function generateSingboxJson(configs) {
         port: cfg.port,
         public_key: cfg.peer_public_key,
         allowed_ips: ['0.0.0.0/0', '::/0'],
-        persistent_keepalive_interval: 25
+        persistent_keepalive_interval: WG_KEEPALIVE,
+        reserved: cfg.reserved
       }]
     };
   });
@@ -2609,7 +2786,9 @@ function generateSingboxLegacyJson(configs) {
     tag: configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name,
     server: cfg.ip,
     server_port: cfg.port,
-    local_address: [cfg.addresses.ipv4, cfg.addresses.ipv6],
+    local_address: [cfg.addresses.ipv4, cfg.addresses.ipv6]
+      .filter(Boolean)
+      .map(addr => addr.includes('/') ? addr : addr.includes(':') ? `${addr}/128` : `${addr}/32`),
     private_key: cfg.private_key,
     peer_public_key: cfg.peer_public_key,
     pre_shared_key: '',
@@ -2624,7 +2803,7 @@ function generateSingboxLegacyJson(configs) {
 function generateXrayJson(configs) {
   const outbounds = configs.map(cfg => ({
     protocol: 'wireguard',
-    tag: cfg.name,
+    tag: configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name,
     settings: {
       secretKey: cfg.private_key,
       address: [cfg.addresses.ipv4, cfg.addresses.ipv6].filter(Boolean),
@@ -2632,7 +2811,7 @@ function generateXrayJson(configs) {
         endpoint: cfg.endpoint,
         publicKey: cfg.peer_public_key,
         preSharedKey: '',
-        keepAlive: 25,
+        keepAlive: WG_KEEPALIVE,
         allowedIPs: ['0.0.0.0/0', '::/0']
       }],
       mtu: cfg.mtu,
@@ -2645,21 +2824,24 @@ function generateXrayJson(configs) {
 
 // Task 16: Clash YAML generator (Clash Meta / Mihomo format)
 function generateClashYaml(configs) {
-  const proxies = configs.map(cfg => ({
-    name: configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name,
-    type: 'wireguard',
-    server: cfg.ip,
-    port: cfg.port,
-    'ip': cfg.addresses.ipv4.replace(/\/\d+$/, ''),
-    'ipv6': cfg.addresses.ipv6.replace(/\/\d+$/, ''),
-    'private-key': cfg.private_key,
-    'public-key': cfg.peer_public_key,
-    'allowed-ips': ['0.0.0.0/0', '::/0'],
-    udp: true,
-    reserved: cfg.reserved ? cfg.reserved.slice() : [0, 0, 0],
-    mtu: cfg.mtu,
-    'persistent-keepalive': 25
-  }));
+  const proxies = configs.map(cfg => {
+    const proxy = {
+      name: configs.length > 1 ? `${cfg.name} ${cfg.ip}:${cfg.port}` : cfg.name,
+      type: 'wireguard',
+      server: cfg.ip,
+      port: cfg.port
+    };
+    if (cfg.addresses.ipv4) proxy['ip'] = cfg.addresses.ipv4.replace(/\/\d+$/, '');
+    if (cfg.addresses.ipv6) proxy['ipv6'] = cfg.addresses.ipv6.replace(/\/\d+$/, '');
+    proxy['private-key'] = cfg.private_key;
+    proxy['public-key'] = cfg.peer_public_key;
+    proxy['allowed-ips'] = ['0.0.0.0/0', '::/0'];
+    proxy.udp = true;
+    proxy.reserved = cfg.reserved ? cfg.reserved.slice() : [0, 0, 0];
+    proxy.mtu = cfg.mtu;
+    proxy['persistent-keepalive'] = WG_KEEPALIVE;
+    return proxy;
+  });
 
   return YAML.dump({ proxies }, { lineWidth: -1 });
 }
@@ -2674,30 +2856,32 @@ function generateV2raynBase64(configs) {
 
 const CACHE_TTL_MS = 300000; // 5 minutes
 
-function getCacheKey(token, format) {
-  const timeBucket = Math.floor(Date.now() / CACHE_TTL_MS);
-  return `cache:${token}:${format}:${timeBucket}`;
+async function getCacheVersion(env) {
+  const raw = await env.WARP_KV.get('settings:cachever');
+  const ver = parseInt(raw || '', 10);
+  return Number.isInteger(ver) && ver > 0 ? ver : 1;
+}
+
+// Invalidation = bump the version (one KV write); old-version entries age out via TTL
+async function bumpCacheVersion(env) {
+  const current = await getCacheVersion(env);
+  try {
+    await env.WARP_KV.put('settings:cachever', String(current + 1));
+  } catch {
+    // Non-fatal: stale entries still expire via cache TTL
+  }
 }
 
 async function getCachedSubscription(token, format, env) {
-  const key = getCacheKey(token, format);
-  return await env.WARP_KV.get(key);
+  const ver = await getCacheVersion(env);
+  const timeBucket = Math.floor(Date.now() / CACHE_TTL_MS);
+  return await env.WARP_KV.get(`cache:${ver}:${token}:${format}:${timeBucket}`);
 }
 
 async function setCachedSubscription(token, format, data, env) {
-  const key = getCacheKey(token, format);
-  await env.WARP_KV.put(key, data, { expirationTtl: 600 });
-}
-
-async function invalidateSubscriptionCache(token, env) {
-  let cursor;
-  do {
-    const result = await env.WARP_KV.list({ prefix: `cache:${token}:`, cursor });
-    for (const key of result.keys) {
-      await env.WARP_KV.delete(key.name);
-    }
-    cursor = result.cursor;
-  } while (cursor);
+  const ver = await getCacheVersion(env);
+  const timeBucket = Math.floor(Date.now() / CACHE_TTL_MS);
+  await env.WARP_KV.put(`cache:${ver}:${token}:${format}:${timeBucket}`, data, { expirationTtl: 86400 });
 }
 
 // --- Subscription Route Handlers ---
@@ -2717,23 +2901,27 @@ const FORMATS = {
 
 async function handleSubscription(request, env, path) {
   const match = path.match(/^\/sub\/([a-f0-9-]+)\/(.+)$/);
-  if (!match) return errorResponse('Invalid subscription URL', 400);
+  if (!match) return errorResponse('Invalid subscription URL', 400, { skipNoStore: true });
 
   const token = match[1];
   const format = match[2].replace(/\/+$/, '');
 
   const formatInfo = FORMATS[format];
-  if (!formatInfo) return errorResponse('Unknown format', 404);
+  if (!formatInfo) {
+    return jsonResponse({ error: 'Unknown format', validFormats: Object.keys(FORMATS) }, 404, { skipNoStore: true });
+  }
 
   if (request.method !== 'GET') {
     if (request.method === 'HEAD') {
+      const headResolved = await resolveToken(token, env);
+      if (headResolved.error) return errorResponse(headResolved.error, headResolved.status, { skipNoStore: true });
       return new Response(null, { status: 200, headers: { 'Content-Type': formatInfo.contentType } });
     }
-    return errorResponse('Method Not Allowed', 405);
+    return errorResponse('Method Not Allowed', 405, { skipNoStore: true });
   }
 
   const resolved = await resolveToken(token, env);
-  if (resolved.error) return errorResponse(resolved.error, resolved.status);
+  if (resolved.error) return errorResponse(resolved.error, resolved.status, { skipNoStore: true });
 
   const { account } = resolved;
 
@@ -2751,10 +2939,10 @@ async function handleSubscription(request, env, path) {
   }
 
   const expanded = await expandEndpoints(account, env);
-  if (expanded.error) return errorResponse(expanded.error, expanded.status);
+  if (expanded.error) return errorResponse(expanded.error, expanded.status, { skipNoStore: true });
 
   const configs = expanded.configs;
-  if (configs.length === 0) return errorResponse('Account has no endpoints configured', 500);
+  if (configs.length === 0) return errorResponse('Account has no endpoints configured', 500, { skipNoStore: true });
 
   let body;
   let cacheData;
@@ -2798,7 +2986,7 @@ async function handleSubscription(request, env, path) {
     body = generateV2raynBase64(configs);
     cacheData = body;
   } else {
-    return errorResponse('Format not implemented', 501);
+    return errorResponse('Format not implemented', 501, { skipNoStore: true });
   }
 
   try {
@@ -2846,9 +3034,18 @@ async function handleSetup(request, env) {
     return redirect('/admin/setup?error=weak_password');
   }
 
-  const effectivePassword = password.slice(0, 72);
-  const hash = await bcrypt.hash(effectivePassword, BCRYPT_COST);
-  await env.WARP_KV.put('settings:password', hash);
+  const effectivePassword = password.slice(0, PASSWORD_MAX_BYTES);
+  let hash;
+  try {
+    hash = await hashPassword(effectivePassword);
+  } catch {
+    return errorResponse('Failed to hash password', 500);
+  }
+  try {
+    await env.WARP_KV.put('settings:password', hash);
+  } catch {
+    return errorResponse('Failed to save password', 500);
+  }
 
   return redirect('/admin/login');
 }
@@ -2876,12 +3073,26 @@ async function handleLogin(request, env) {
     return redirect('/admin/login?error=rate_limited');
   }
 
-  const effectivePassword = password ? password.slice(0, 72) : '';
-  const valid = await bcrypt.compare(effectivePassword, hash);
-  if (!valid) {
+  const effectivePassword = password ? password.slice(0, PASSWORD_MAX_BYTES) : '';
+  let verifyResult;
+  try {
+    verifyResult = await verifyPassword(effectivePassword, hash);
+  } catch {
+    return redirect('/admin/login?error=invalid_password');
+  }
+  if (!verifyResult.valid) {
     // Increment failure counter (15-minute TTL)
     await env.WARP_KV.put(failKey, String(fails + 1), { expirationTtl: 900 });
     return redirect('/admin/login?error=invalid_password');
+  }
+
+  // Legacy bcrypt hash → re-hash as PBKDF2 and overwrite (one-time migration)
+  if (verifyResult.migratedHash) {
+    try {
+      await env.WARP_KV.put('settings:password', verifyResult.migratedHash);
+    } catch {
+      // Non-fatal: legacy hash still verifies; migration retries on next login
+    }
   }
 
   // Clear failure counter on success

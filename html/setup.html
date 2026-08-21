@@ -132,6 +132,38 @@
           </div>
         </div>
 
+        <!-- Setup secret field (optional — only required when server sets ADMIN_SETUP_SECRET) -->
+        <div class="mb-5">
+          <label for="secret" class="block text-sm font-medium text-gray-300 mb-1.5">Setup secret <span class="text-gray-500 font-normal">(if configured)</span></label>
+          <div class="relative">
+            <input
+              type="password"
+              id="secret"
+              name="secret"
+              autocomplete="off"
+              class="w-full px-4 py-2.5 pr-11 rounded-xl bg-white/5 border border-white/10 text-gray-100 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30 transition-all"
+              placeholder="Leave empty if not required"
+              aria-label="Setup secret"
+            >
+            <button
+              type="button"
+              id="toggleSecret"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors"
+              aria-label="Toggle setup secret visibility"
+              tabindex="-1"
+            >
+              <svg class="w-5 h-5" id="eyeOpenSecret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+              </svg>
+              <svg class="w-5 h-5 hidden" id="eyeClosedSecret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+                <line x1="1" y1="1" x2="23" y2="23"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
         <!-- Error alert (hidden by default, shown via server redirect or client validation) -->
         <div id="error" class="hidden mb-4 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm flex items-center gap-2" role="alert">
           <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -201,6 +233,7 @@
     }
     wireToggle('togglePw', 'password', 'eyeOpen', 'eyeClosed');
     wireToggle('toggleCf', 'confirm', 'eyeOpenCf', 'eyeClosedCf');
+    wireToggle('toggleSecret', 'secret', 'eyeOpenSecret', 'eyeClosedSecret');
 
     // ---- Live password strength bar ----
     var strengthBar = document.getElementById('strengthBar');
