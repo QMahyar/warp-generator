@@ -15,13 +15,13 @@ const workerVersion = m[1];
 const tagArg = process.argv.find(a => a.startsWith('--tag='));
 let expected = tagArg ? tagArg.slice(6).replace(/^v/, '') : null;
 if (!expected) {
-  // Try exact tag first, then nearest tag — Windows-safe, no shell pipes.
-  for (const cmd of ['git describe --tags --exact-match HEAD', 'git describe --tags']) {
-    try {
-      const tag = execSync(cmd, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-      if (tag) { expected = tag.replace(/^v/, ''); break; }
-    } catch {}
-  }
+  // Only enforce tag consistency when HEAD is exactly tagged; between releases
+  // `git describe` would return the nearest tag with a -N-gSHA suffix, which is
+  // not a version. Windows-safe, no shell pipes.
+  try {
+    const tag = execSync('git describe --tags --exact-match HEAD', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (tag) expected = tag.replace(/^v/, '');
+  } catch {}
 }
 console.log(`package.json: ${pkg.version}`);
 console.log(`_worker.js:   ${workerVersion}`);
