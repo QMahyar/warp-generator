@@ -79,18 +79,22 @@ const SHARED_CSS = String.raw`:root {
   --text-ghost: #76808f;
   --cyan: #22d3ee;
   --cyan-bright: #67e8f9;
+  --cyan-pale: #a5f3fc;
   --accent-ink: #03141c;
   --blue: #3b82f6;
   --red: #ef4444;
   --red-soft: #f87171;
   --amber: #fbbf24;
+  --green: #34d399;
   --violet: #c4b5fd;
+  --elev-2: 0 1px 2px rgba(2,6,17,.4), 0 8px 24px -12px rgba(2,6,17,.55), inset 0 1px 0 rgba(255,255,255,.03);
+  --elev-3: 0 24px 48px -16px rgba(2,6,17,.7), inset 0 1px 0 rgba(255,255,255,.04);
   --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   --ease: cubic-bezier(.16,1,.3,1);
 }
 *, *::before, *::after { box-sizing: border-box; }
-html { color-scheme: dark; scroll-behavior: smooth; }
+html { color-scheme: dark; scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.14) transparent; }
 body {
   margin: 0; min-height: 100dvh; background: var(--bg); color: var(--text);
   font-family: var(--font-sans); font-size: 16px; line-height: 1.5;
@@ -118,6 +122,8 @@ svg { display: block; flex-shrink: 0; }
 @keyframes kf-toast-in { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
 @keyframes kf-toast-out { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
 @keyframes modal-pop-kf { from { opacity: 0; transform: scale(.95) translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes modal-drop-kf { to { opacity: 0; transform: scale(.97) translateY(6px); } }
+@keyframes overlay-fade-kf { from { opacity: 1; } to { opacity: 0; } }
 @keyframes toast-progress { from { width: 100%; } to { width: 0%; } }
 
 .hidden { display: none !important; }
@@ -130,6 +136,15 @@ svg { display: block; flex-shrink: 0; }
 .toast-in { animation: kf-toast-in .3s var(--ease); }
 .toast-out { animation: kf-toast-out .3s ease-in forwards; }
 .strength-bar { transition: width .3s ease, background-color .3s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
 
 .texture-wrap { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
 .dotgrid {
@@ -157,7 +172,7 @@ svg { display: block; flex-shrink: 0; }
   width: 2.5rem; height: 2.5rem; border-radius: .75rem;
   background: linear-gradient(to bottom right, #2563eb, #06b6d4);
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  box-shadow: 0 10px 15px -3px rgba(59,130,246,.2);
+  box-shadow: 0 10px 15px -3px rgba(59,130,246,.2), inset 0 1px 0 rgba(255,255,255,.3);
 }
 .logo-tile svg { width: 20px; height: 20px; color: #fff; }
 .logo-tile-lg { width: 3rem; height: 3rem; margin-bottom: .75rem; box-shadow: 0 10px 15px -3px rgba(59,130,246,.25); }
@@ -230,6 +245,8 @@ svg { display: block; flex-shrink: 0; }
 .card-topline { position: absolute; top: -1px; left: 2.5rem; right: 2.5rem; height: 1px; background: linear-gradient(to right, transparent, rgba(34,211,238,.4), transparent); }
 .card-title { font-size: 1.25rem; font-weight: 600; text-align: center; letter-spacing: -.01em; margin-bottom: .25rem; }
 .card-sub { font-size: .875rem; color: var(--text-dim); text-align: center; margin-bottom: 1.5rem; }
+.mobile-card-heading { display: block; }
+@media (min-width: 1024px) { .mobile-card-heading { display: none; } }
 .desktop-heading { display: none; margin-bottom: 1.75rem; }
 .heading-lg { font-size: 1.5rem; font-weight: 600; letter-spacing: -.01em; }
 .heading-sub { margin-top: .25rem; font-size: .875rem; color: var(--text-dim); }
@@ -246,7 +263,7 @@ svg { display: block; flex-shrink: 0; }
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 .field-input::placeholder { color: var(--text-faint); }
-.field-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,.28); }
+.field-input:focus { border-color: rgba(34,211,238,.5); box-shadow: 0 0 0 3px rgba(34,211,238,.16); }
 .with-eye { padding-right: 2.75rem; }
 .eye-btn {
   position: absolute; right: .625rem; top: 50%; transform: translateY(-50%);
@@ -299,6 +316,7 @@ svg { display: block; flex-shrink: 0; }
 }
 .btn-secondary:hover { background: rgba(255,255,255,.1); }
 .btn-block { width: 100%; padding: .625rem 1rem; }
+.form-submit-gap { margin-top: .75rem; }
 .spin-icon { width: 16px; height: 16px; animation: spin .8s linear infinite; }
 .spin-icon circle { opacity: .25; }
 .spin-icon path { opacity: .75; }
@@ -327,7 +345,9 @@ svg { display: block; flex-shrink: 0; }
   margin: -1rem -1rem 1.5rem; padding: .75rem 1rem;
   background: rgba(5,8,15,.8); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
   border-bottom: 1px solid rgba(255,255,255,.05);
+  transition: background-color .25s ease, box-shadow .25s ease;
 }
+.app-header.scrolled { background: rgba(5,8,15,.94); box-shadow: 0 12px 32px -20px rgba(2,6,17,.9); }
 .header-row { display: flex; align-items: center; justify-content: space-between; }
 .brand-lockup { display: flex; align-items: center; gap: .75rem; }
 .app-title { font-size: 1rem; font-weight: 700; letter-spacing: -.01em; line-height: 1.25; }
@@ -354,13 +374,13 @@ svg { display: block; flex-shrink: 0; }
 .tabs-desktop { display: none; }
 .tabs-mobile { display: flex; }
 .nav-btn {
-  padding: .375rem .75rem; font-size: .875rem; border-radius: .6rem;
-  color: rgb(156 163 175);
+  padding: .375rem .75rem; font-size: .875rem; border-radius: .75rem;
+  color: var(--text-dim);
   transition: color .2s, background-color .2s, box-shadow .2s;
 }
 .nav-btn-sm { padding: .375rem .625rem; font-size: 12px; }
-.nav-btn:hover { color: rgb(229 231 235); background: rgba(255,255,255,.04); }
-.nav-btn.nav-active { color: #a5f3fc; background: rgba(34,211,238,.09); box-shadow: inset 0 0 0 1px rgba(34,211,238,.18); }
+.nav-btn:hover { color: var(--text-mid); background: rgba(255,255,255,.04); }
+.nav-btn.nav-active { color: var(--cyan-pale); background: rgba(34,211,238,.09); box-shadow: inset 0 0 0 1px rgba(34,211,238,.18); }
 .logout-btn {
   padding: .375rem .75rem; border-radius: .75rem; font-size: .875rem; color: var(--text-dim);
   transition: color .15s, background-color .15s, transform .15s;
@@ -380,6 +400,7 @@ svg { display: block; flex-shrink: 0; }
 
 .view-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.25rem; }
 .view-title { font-size: 1.25rem; font-weight: 600; letter-spacing: -.01em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings-title { margin-bottom: 1.5rem; }
 .btn-row { display: flex; gap: .5rem; flex-shrink: 0; }
 .accounts-grid { display: grid; gap: 1rem; }
 @media (min-width: 640px) { .accounts-grid { grid-template-columns: repeat(2, 1fr); } }
@@ -389,7 +410,10 @@ svg { display: block; flex-shrink: 0; }
   background: var(--surface); border: 1px solid var(--line); border-radius: 1rem;
   padding: 1rem; margin-bottom: 1.25rem;
 }
-.panel.danger-zone { border-color: rgba(239,68,68,.1); margin-bottom: 0; }
+@media (min-width: 768px) { .panel, .token-panel { padding: 1.25rem; } }
+.panel.danger-zone { border-color: rgba(239,68,68,.1); margin-bottom: 0; box-shadow: inset 3px 0 0 rgba(239,68,68,.25); }
+.view-settings .panel:last-child { margin-bottom: 0; }
+.file-input { padding: .4rem .625rem; font-size: .8125rem; }
 .panel-label {
   font-size: 11px; font-weight: 600; font-family: var(--font-mono); color: var(--text-faint);
   text-transform: uppercase; letter-spacing: .1em; margin-bottom: 1rem;
@@ -411,6 +435,7 @@ svg { display: block; flex-shrink: 0; }
   position: relative; overflow: hidden; border-radius: 1rem; padding: 1rem; margin-bottom: 1.25rem;
   border: 1px solid var(--line);
   background: linear-gradient(to bottom right, rgba(34,211,238,.04), transparent);
+  box-shadow: var(--elev-2);
 }
 .token-panel::before {
   content: ''; position: absolute; top: 0; left: 2rem; right: 2rem; height: 1px;
@@ -425,7 +450,9 @@ svg { display: block; flex-shrink: 0; }
 .token-value {
   font-family: var(--font-mono); font-size: .875rem; color: rgba(165,243,252,.9);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  transition: opacity .12s ease;
 }
+.token-value.masked { letter-spacing: .08em; cursor: pointer; user-select: none; border-bottom: 1px dashed rgba(165,243,252,.35); padding-bottom: 1px; }
 .copy-btn {
   width: 2rem; height: 2rem; border-radius: .5rem; display: flex; align-items: center; justify-content: center;
   color: var(--text-dim); border: 1px solid var(--line); flex-shrink: 0;
@@ -450,11 +477,14 @@ svg { display: block; flex-shrink: 0; }
 }
 .tf-dim { color: var(--text-ghost); }
 .tf-hint { font-size: 11px; color: var(--text-faint); }
+.num { font-variant-numeric: tabular-nums; }
+.mono-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .tchip {
   display: inline-block; padding: .125rem .5625rem; border-radius: 999px; font-size: 11px; font-weight: 600;
   border: 1px solid var(--line); background: rgba(255,255,255,.04); color: var(--text-dim);
+  font-family: var(--font-mono); font-variant-numeric: tabular-nums;
 }
-.tchip-ok { color: #34d399; border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.08); }
+.tchip-ok { color: var(--green); border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.08); }
 .tchip-warn { color: var(--amber); border-color: rgba(245,158,11,.3); background: rgba(245,158,11,.08); }
 .tchip-red { color: var(--red-soft); border-color: rgba(239,68,68,.3); background: rgba(239,68,68,.08); }
 .acct-status-dot {
@@ -483,16 +513,44 @@ svg { display: block; flex-shrink: 0; }
 .amn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: .75rem; margin-bottom: 1rem; }
 .amn-field label { display: block; font-size: 12px; color: var(--text-faint); margin-bottom: .25rem; }
 .amn-field .field-input { padding: .5rem .75rem; font-size: .875rem; }
+.amn-cluster-title {
+  font-size: 11px; font-weight: 600; font-family: var(--font-mono); color: var(--text-ghost);
+  text-transform: uppercase; letter-spacing: .1em; margin: 0 0 .5rem;
+}
+.amn-cluster + .amn-cluster { margin-top: 1rem; }
+.seg-row {
+  display: inline-flex; gap: .25rem; padding: .25rem; border-radius: .75rem;
+  background: rgba(255,255,255,.04); border: 1px solid var(--line-strong); margin-bottom: .75rem;
+}
+.seg { position: relative; }
+.seg input {
+  position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none;
+}
+.seg span {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 36px;
+  padding: .25rem .875rem; border-radius: .55rem; font-size: .8125rem; font-weight: 500;
+  color: var(--text-dim); cursor: pointer; transition: color .15s, background-color .15s, box-shadow .15s;
+  user-select: none;
+}
+.seg:hover span { color: var(--text); }
+.seg input:checked + span {
+  color: var(--cyan-pale); background: rgba(34,211,238,.09);
+  box-shadow: inset 0 0 0 1px rgba(34,211,238,.18);
+}
+.seg input:focus-visible + span { outline: 2px solid rgba(34,211,238,.65); outline-offset: 2px; }
 .hint { color: var(--text-ghost); }
-.link-btn { display: inline-block; font-size: 12px; color: var(--blue); margin-bottom: .75rem; transition: color .15s; }
-.link-btn:hover { color: #93c5fd; }
+.link-btn { display: inline-block; font-size: 12px; color: var(--cyan-bright); margin-bottom: .75rem; transition: color .15s, background-color .15s; }
+.link-btn:hover { color: var(--cyan-pale); }
 .mini-input {
   padding: .375rem .75rem; font-size: 12px; border-radius: .5rem;
   background: var(--surface-2); border: 1px solid var(--line-strong); color: var(--text);
   transition: border-color .15s, box-shadow .15s;
 }
 .mini-input::placeholder { color: var(--text-faint); }
-.mini-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
+.mini-input:focus { border-color: rgba(34,211,238,.5); box-shadow: 0 0 0 3px rgba(34,211,238,.14); }
+@media (forced-colors: active) {
+  .field-input:focus, .mini-input:focus { outline: 2px solid CanvasText; outline-offset: 2px; }
+}
 .ep-row { display: flex; gap: .5rem; align-items: center; }
 .ep-ip { flex: 1; min-width: 0; }
 .ep-port { width: 5rem; flex: none; }
@@ -509,8 +567,10 @@ svg { display: block; flex-shrink: 0; }
 .overlay-top { z-index: 50; }
 .sheet {
   background: var(--bg-raised); border: 1px solid rgba(255,255,255,.08);
-  border-radius: 22px 22px 0 0; padding: 1.5rem; width: 100%;
-  box-shadow: 0 25px 50px -12px rgba(0,0,0,.6);
+  border-radius: 20px 20px 0 0; padding: 1.5rem; width: 100%;
+  max-height: calc(100dvh - 2rem); overflow-y: auto;
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  box-shadow: var(--elev-3);
   animation: modal-pop-kf .22s var(--ease);
 }
 .sheet-md { max-width: 28rem; }
@@ -520,7 +580,13 @@ svg { display: block; flex-shrink: 0; }
 .sheet .field-input { margin-bottom: .5rem; }
 .sheet-msg { font-size: .875rem; color: var(--text-dim); margin-bottom: 1.5rem; }
 .modal-note { font-size: 12px; color: var(--text-ghost); margin-bottom: .75rem; }
-.sheet-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1rem; }
+.sheet-actions {
+  display: flex; gap: .5rem; justify-content: flex-end; margin-top: 1.25rem;
+  border-top: 1px solid var(--line); padding-top: 1rem;
+}
+.sheet-actions button, .sheet-actions a { min-height: 44px; }
+.overlay.closing { animation: overlay-fade-kf .15s ease-in forwards; }
+.overlay.closing .sheet { animation: modal-drop-kf .15s ease-in forwards; }
 .confirm-btn {
   padding: .5rem 1rem; border-radius: .75rem; font-size: .875rem; font-weight: 500;
   transition: background-color .15s;
@@ -539,18 +605,21 @@ svg { display: block; flex-shrink: 0; }
   pointer-events: auto; position: relative; overflow: hidden;
   display: flex; align-items: center; gap: .625rem; padding: .625rem .5rem .625rem .75rem;
   border-radius: .75rem; font-size: .875rem; font-weight: 500;
-  box-shadow: 0 25px 50px -12px rgba(0,0,0,.5); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--elev-3); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(34,211,238,.2); background: rgba(10,20,27,.95); color: var(--text);
 }
 .toast.toast-error { background: rgba(23,13,17,.95); border-color: rgba(248,113,113,.25); color: #fee2e2; }
 .ticon { width: 16px; height: 16px; }
-.ticon-ok { color: var(--cyan-bright); }
+.ticon-ok { color: var(--green); }
 .ticon-err { color: var(--red-soft); }
 .toast-body { flex: 1; }
 .toast-close { padding: .25rem; border-radius: .5rem; transition: background-color .15s; flex-shrink: 0; }
+.banner-close { padding: .25rem; border-radius: .5rem; transition: background-color .15s; flex-shrink: 0; }
+.banner-close:hover { background: rgba(255,255,255,.1); }
+.banner-close svg { width: 14px; height: 14px; }
 .toast-close:hover { background: rgba(255,255,255,.1); }
 .toast-close svg { width: 14px; height: 14px; }
-.toast-bar { position: absolute; bottom: 0; left: 0; height: 2px; border-radius: 9999px; background: rgba(34,211,238,.6); animation: toast-progress 3.5s linear forwards; }
+.toast-bar { position: absolute; bottom: 0; left: 0; height: 2px; border-radius: 9999px; background: rgba(52,211,153,.6); animation: toast-progress 3.5s linear forwards; }
 .toast-bar-err { background: rgba(248,113,113,.6); }
 
 .spot { position: relative; }
@@ -583,10 +652,10 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
   box-shadow: 0 10px 15px -3px rgba(0,0,0,.35);
 }
 .grad-1 { background-image: linear-gradient(to bottom right, #3b82f6, #22d3ee); }
-.grad-2 { background-image: linear-gradient(to bottom right, #a855f7, #f472b6); }
+.grad-2 { background-image: linear-gradient(to bottom right, #f43f5e, #fb923c); }
 .grad-3 { background-image: linear-gradient(to bottom right, #f97316, #f87171); }
 .grad-4 { background-image: linear-gradient(to bottom right, #10b981, #2dd4bf); }
-.grad-5 { background-image: linear-gradient(to bottom right, #6366f1, #a78bfa); }
+.grad-5 { background-image: linear-gradient(to bottom right, #6366f1, #38bdf8); }
 .grad-6 { background-image: linear-gradient(to bottom right, #f59e0b, #facc15); }
 .acct-meta { min-width: 0; flex: 1; padding-top: 2px; display: block; }
 .acct-name {
@@ -631,7 +700,12 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
 .sub-row:hover .fmt-box { color: var(--cyan-bright); border-color: rgba(34,211,238,.25); }
 .sub-info { flex: 1; min-width: 0; }
 .sub-name { font-size: 12px; font-weight: 500; color: #e5e7eb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sub-url { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sub-url { display: flex; min-width: 0; align-items: baseline; font-family: var(--font-mono); font-size: 11px; margin-top: 2px; }
+.u-head { flex: 0 1 auto; min-width: 3ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-ghost); }
+.u-tail { flex: none; white-space: nowrap; color: rgba(165,243,252,.85); }
+.icon-btn-danger { color: var(--red-soft); }
+.icon-btn-danger:hover { color: #fca5a5; background: rgba(239,68,68,.1); }
+.w-fixed { max-width: 11rem; flex-shrink: 0; }
 .icon-btn {
   width: 1.75rem; height: 1.75rem; flex-shrink: 0; border-radius: .5rem;
   display: flex; align-items: center; justify-content: center; color: var(--text-faint);
@@ -640,6 +714,8 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
 .icon-btn:hover { color: var(--cyan-bright); background: rgba(34,211,238,.1); }
 .icon-btn:active { transform: scale(.95); }
 .icon-btn svg { width: 14px; height: 14px; }
+.icon-btn.copied { color: var(--green) !important; border-color: rgba(52,211,153,.45); background: rgba(52,211,153,.1); transform: scale(1.05); }
+.copy-btn.copied { color: var(--green) !important; border-color: rgba(52,211,153,.45); background: rgba(52,211,153,.1); transform: scale(1.05); }
 .amz-tag {
   display: inline-block; vertical-align: middle; margin-left: .375rem; padding: 1px 6px;
   border-radius: 4px; background: rgba(139,92,246,.15); border: 1px solid rgba(167,139,250,.2);
@@ -661,15 +737,27 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
 .pill:active { transform: scale(.97); }
 .pill-active { background: rgba(34,211,238,.12); border-color: rgba(34,211,238,.45); color: var(--cyan-bright); }
 .picker-hint { font-size: 12px; color: var(--text-faint); margin: -.125rem 0 .5rem; }
+.qr-frame { position: relative; display: flex; justify-content: center; margin-bottom: 1rem; }
+.qr-frame::before, .qr-frame::after,
+.qr-frame .tick-bl, .qr-frame .tick-br {
+  content: ''; position: absolute; width: 14px; height: 14px;
+  border: 2px solid rgba(34,211,238,.55); pointer-events: none;
+}
+.qr-frame::before { top: -6px; left: calc(50% - 108px); border-right: none; border-bottom: none; border-top-left-radius: 4px; }
+.qr-frame::after { top: -6px; right: calc(50% - 108px); border-left: none; border-bottom: none; border-top-right-radius: 4px; }
+.qr-frame .tick-bl { bottom: -6px; left: calc(50% - 108px); border-right: none; border-top: none; border-bottom-left-radius: 4px; }
+.qr-frame .tick-br { bottom: -6px; right: calc(50% - 108px); border-left: none; border-top: none; border-bottom-right-radius: 4px; }
 .qr-box {
   display: flex; justify-content: center; align-items: center;
-  padding: .75rem; background: #ffffff; border-radius: .75rem; margin-bottom: .75rem;
+  padding: 1rem; background: #ffffff; border-radius: .875rem;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.08), 0 12px 32px -16px rgba(0,0,0,.7);
 }
 .qr-box svg { width: 200px; height: 200px; }
+.qr-meta { display: flex; justify-content: center; margin-bottom: .75rem; }
 .qr-url {
   font-family: var(--font-mono); font-size: 11px; color: var(--text-faint);
   word-break: break-all; line-height: 1.6; margin-bottom: .5rem;
-  max-height: 4.4em; overflow-y: auto;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .drop-zone {
   border: 1px dashed var(--line-strong); border-radius: .5rem;
@@ -689,11 +777,24 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
 .chk-item .link-btn { margin-left: auto; font-size: 12px; padding: .1rem .4rem; }
 .chk-done { color: var(--text-faint); text-decoration: line-through; text-decoration-color: rgba(255,255,255,.25); }
 .chk-mark { color: var(--cyan-bright); font-size: .75rem; width: 1rem; text-align: center; }
-.chk-done .chk-mark { color: #34d399; }
+.chk-done .chk-mark { color: var(--green); }
+.lat-wrap {
+  max-height: 40vh; overflow: auto; border-radius: .5rem;
+}
 .lat-table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
-.lat-table th { text-align: left; font-weight: 500; color: var(--text-faint); padding: .4rem .5rem; border-bottom: 1px solid rgba(255,255,255,.08); }
-.lat-table td { padding: .45rem .5rem; border-bottom: 1px solid rgba(255,255,255,.04); font-family: var(--font-mono); }
-.warn-note { color: #fbbf24; font-size: 12.5px; line-height: 1.5; }
+.lat-table th {
+  position: sticky; top: 0; z-index: 1; background: var(--bg-raised); text-align: left;
+  font-weight: 500; color: var(--text-faint); padding: .4rem .5rem;
+  border-bottom: 1px solid rgba(255,255,255,.08); box-shadow: 0 1px 0 rgba(255,255,255,.06);
+}
+.lat-table td { padding: .45rem .5rem; border-bottom: 1px solid rgba(255,255,255,.04); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.lat-table tbody tr { transition: background-color .12s; }
+.lat-table tbody tr:hover { background: rgba(255,255,255,.03); }
+.lat-fast { color: var(--green); }
+.lat-ok { color: var(--cyan-bright); }
+.lat-slow { color: var(--amber); }
+.lat-dead { color: var(--red-soft); }
+.warn-note { color: #fbbf24; font-size: 12px; line-height: 1.5; }
 
 .preset-row {
   display: flex; align-items: center; justify-content: space-between; padding: .75rem;
@@ -704,14 +805,14 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
 .preset-info { min-width: 0; flex: 1; }
 .preset-name { font-size: .875rem; font-weight: 500; }
 .preset-preview { font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.preset-count { font-size: 12px; color: var(--text-ghost); margin: 0 .75rem; flex-shrink: 0; }
+.preset-count { font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-ghost); margin: 0 .75rem; flex-shrink: 0; }
 .preset-del {
   padding: .25rem .625rem; border-radius: .5rem; font-size: 12px; color: var(--red-soft); flex-shrink: 0;
   transition: background-color .15s;
 }
 .preset-del:hover { background: rgba(239,68,68,.1); }
-.preset-edit { color: var(--blue); }
-.preset-edit:hover { background: rgba(59,130,246,.12); }
+.preset-edit { color: var(--cyan-bright); }
+.preset-edit:hover { background: rgba(34,211,238,.1); }
 .preset-row-actions { display: flex; gap: .5rem; flex-shrink: 0; align-items: center; }
 
 .empty-cell { grid-column: 1 / -1; }
@@ -762,7 +863,6 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
 }
 .preset-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-top: 1rem; }
 .bulk-label { display: block; font-size: 12px; color: var(--text-faint); margin: .75rem 0 .25rem; }
-.token-value.masked { letter-spacing: .08em; cursor: pointer; user-select: none; }
 .btn-sm-tap { min-height: 44px; }
 
 @media (max-width: 640px), (pointer: coarse) {
@@ -772,7 +872,15 @@ button.acct-card { display: block; width: 100%; text-align: left; color: inherit
   .pill { min-height: 44px; display: inline-flex; align-items: center; }
   .ep-del { min-width: 44px; min-height: 44px; }
   .toast-close { min-width: 44px; min-height: 44px; }
+  .banner-close { min-width: 44px; min-height: 44px; }
+  .copy-btn { width: 44px; height: 44px; }
+  .back-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; }
+  .eye-btn { min-width: 44px; min-height: 44px; }
+  .preset-del { padding: .5rem .75rem; }
   .sub-row { gap: .5rem; }
+}
+@media (pointer: coarse) {
+  .field-input, .mini-input, select.field-input, select.mini-input { font-size: 16px; }
 }
 `;
 
@@ -868,18 +976,39 @@ function parseEndpointBulk(text) {
 
 function validateAmneziaValues(v) {
   if (!v || typeof v !== 'object') return 'Invalid Amnezia values';
-  var fields = [['Jc', 0, 128], ['Jmin', 0, 1280], ['Jmax', 0, 1280], ['S1', 0, 255], ['S2', 0, 255], ['H1', 0, 2147483647], ['H2', 0, 2147483647], ['H3', 0, 2147483647], ['H4', 0, 2147483647]];
+  var H_RE = /^\d+\s*-\s*\d+$/;
+  var fields = [['Jc', 0, 128], ['Jmin', 0, 1280], ['Jmax', 0, 1280], ['S1', 0, 255], ['S2', 0, 255]];
   for (var i = 0; i < fields.length; i++) {
     var n = Number(v[fields[i][0]]);
     if (v[fields[i][0]] === '' || v[fields[i][0]] === null || v[fields[i][0]] === undefined || !Number.isInteger(n) || n < fields[i][1] || n > fields[i][2]) {
       return fields[i][0] + ' must be a whole number ' + fields[i][1] + '-' + fields[i][2];
     }
   }
+  var hFields = [['H1', 2147483647], ['H2', 2147483647], ['H3', 2147483647], ['H4', 2147483647]];
+  for (var h = 0; h < hFields.length; h++) {
+    var name = hFields[h][0];
+    var maxH = hFields[h][1];
+    var raw = v[name];
+    if (raw === '' || raw === null || raw === undefined) {
+      return name + ' must be a whole number 0-' + maxH + ' or a lo-hi range';
+    }
+    if (typeof raw === 'string' && H_RE.test(raw.trim())) {
+      var parts = raw.trim().split('-').map(function(x) { return parseInt(x, 10); });
+      if (isNaN(parts[0]) || isNaN(parts[1]) || parts[0] > parts[1] || parts[1] > maxH) {
+        return name + ' range invalid (lo<=hi, each 0-' + maxH + ')';
+      }
+      continue;
+    }
+    var hn = Number(raw);
+    if (!Number.isInteger(hn) || hn < 0 || hn > maxH) {
+      return name + ' must be a whole number 0-' + maxH + ' or a lo-hi range';
+    }
+  }
   var optionalInts = [['S3', 0, 255], ['S4', 0, 255]];
   for (var j = 0; j < optionalInts.length; j++) {
-    var raw = v[optionalInts[j][0]];
-    if (raw === '' || raw === null || raw === undefined) continue;
-    var on = Number(raw);
+    var rawOpt = v[optionalInts[j][0]];
+    if (rawOpt === '' || rawOpt === null || rawOpt === undefined) continue;
+    var on = Number(rawOpt);
     if (!Number.isInteger(on) || on < optionalInts[j][1] || on > optionalInts[j][2]) {
       return optionalInts[j][0] + ' must be a whole number ' + optionalInts[j][1] + '-' + optionalInts[j][2];
     }
@@ -1317,8 +1446,16 @@ ${SHARED_CSS}
 
         <div class="glass-card">
           <div class="card-topline" aria-hidden="true"></div>
-          <h1 class="card-title">Create admin password</h1>
-          <p class="card-sub">You only need to do this once</p>
+
+          <div class="desktop-heading">
+            <h1 class="heading-lg">Create admin password</h1>
+            <p class="heading-sub">You only need to do this once. Store it safely — there is no recovery.</p>
+          </div>
+
+          <div class="mobile-card-heading">
+            <h1 class="card-title">Create admin password</h1>
+            <p class="card-sub">You only need to do this once</p>
+          </div>
 
           <form method="POST" action="/admin/setup" id="setupForm" novalidate>
 
@@ -1586,7 +1723,7 @@ ${SHARED_CSS}
               </div>
             </div>
 
-            <button type="submit" id="submit-btn" class="btn-primary btn-block" style="margin-top:.75rem;">
+            <button type="submit" id="submit-btn" class="btn-primary btn-block form-submit-gap">
               <span id="btn-text">Login</span>
               <svg id="btn-spinner" class="spin-icon hidden" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3" stroke-opacity="0.25"/>
@@ -1697,12 +1834,16 @@ ${SHARED_CSS}
         </div>
         <nav class="top-nav">
           <div class="nav-tabs tabs-desktop">
-            <button onclick="navigate('accounts')" class="nav-btn" data-view="accounts" aria-label="Accounts view">Accounts</button>
-            <button onclick="navigate('settings')" class="nav-btn" data-view="settings" aria-label="Settings view">Settings</button>
+            <button onclick="navigate('accounts')" class="nav-btn" data-view="accounts">Accounts</button>
+            <button onclick="navigate('settings')" class="nav-btn" data-view="settings">Settings</button>
           </div>
           <div class="nav-tabs tabs-mobile">
-            <button onclick="navigate('accounts')" class="nav-btn nav-btn-sm" data-view="accounts" aria-label="Accounts view">Accts</button>
-            <button onclick="navigate('settings')" class="nav-btn nav-btn-sm" data-view="settings" aria-label="Settings view">Config</button>
+            <button onclick="navigate('accounts')" class="nav-btn nav-btn-sm" data-view="accounts" aria-label="Accounts">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="margin:0 auto;"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </button>
+            <button onclick="navigate('settings')" class="nav-btn nav-btn-sm" data-view="settings" aria-label="Settings">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" style="margin:0 auto;"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+            </button>
           </div>
           <form method="POST" action="/admin/logout" style="display:inline;">
             <button type="submit" class="logout-btn" aria-label="Logout">Logout</button>
@@ -1712,7 +1853,7 @@ ${SHARED_CSS}
       <div id="stats-row" class="stats-row">
         <span id="stat-accounts" class="stat-chip"></span>
         <span id="stat-presets" class="stat-chip"></span>
-        <span class="stat-chip dim"><span class="dot dot-cyan"></span>10 formats</span>
+        <span id="stat-formats" class="stat-chip dim"><span class="dot dot-cyan"></span>formats</span>
         <span id="stat-warp" class="stat-chip dim" title="Checking WARP API status..."><span class="dot" style="background:var(--text-dim);"></span>WARP</span>
       </div>
     </header>
@@ -1746,7 +1887,7 @@ ${SHARED_CSS}
           </div>
           <div class="token-actions">
             <button onclick="showTokenEditModal()" class="btn-secondary btn-sm-tap" id="btn-edit-token">Edit Token</button>
-            <button onclick="copyToken()" title="Copy token" class="copy-btn" aria-label="Copy token">
+            <button onclick="copyToken(this)" title="Copy token" class="copy-btn" aria-label="Copy token">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
             </button>
           </div>
@@ -1755,12 +1896,19 @@ ${SHARED_CSS}
       </div>
 
       <div class="panel">
+        <h3 class="panel-label">Subscription URLs</h3>
+        <div id="client-pills" class="pill-row" role="group" aria-label="Show URLs for a specific app"></div>
+        <div id="picker-hint" class="picker-hint hidden"></div>
+        <div id="sub-urls" class="stack-sm"></div>
+      </div>
+
+      <div class="panel">
         <h3 class="panel-label">Account Settings</h3>
         <div class="stack-lg">
           <div>
             <label for="edit-name" class="field-label">Account Name</label>
             <div class="input-row">
-              <input id="edit-name" type="text" autocomplete="off" class="field-input">
+              <input id="edit-name" type="text" maxlength="100" autocomplete="off" class="field-input">
               <button onclick="updateAccountName()" class="btn-secondary" id="btn-save-name">Save</button>
             </div>
           </div>
@@ -1772,11 +1920,25 @@ ${SHARED_CSS}
             </div>
           </div>
           <div>
+            <label for="edit-dns" class="field-label">DNS Server <span class="hint">(optional)</span></label>
+            <div class="input-row">
+              <input id="edit-dns" type="text" list="dns-suggestions" placeholder="Blank = inherit preset or 1.1.1.1" autocomplete="off" spellcheck="false" class="field-input mono-area">
+              <button onclick="updateAccountDns()" class="btn-secondary" id="btn-save-dns">Save</button>
+            </div>
+            <datalist id="dns-suggestions">
+              <option value="1.1.1.1"></option>
+              <option value="1.0.0.1"></option>
+              <option value="8.8.8.8"></option>
+              <option value="9.9.9.9"></option>
+            </datalist>
+          </div>
+          <div>
             <label for="edit-group" class="field-label">Group Tag <span class="hint">(optional, groups feed Group Subscriptions)</span></label>
             <div class="input-row">
-              <input id="edit-group" type="text" maxlength="50" placeholder="e.g. home" autocomplete="off" class="field-input">
+              <input id="edit-group" type="text" maxlength="50" list="group-tags" placeholder="e.g. home" autocomplete="off" class="field-input">
               <button onclick="updateAccountGroup()" class="btn-secondary" id="btn-save-group">Save</button>
             </div>
+            <datalist id="group-tags"></datalist>
           </div>
         </div>
       </div>
@@ -1789,30 +1951,33 @@ ${SHARED_CSS}
           Override global defaults for this account
         </label>
         <div id="amn-acct-error" class="form-error hidden" role="alert"></div>
-        <div class="amn-grid">
-          <div class="amn-field"><label for="aac-jc">Jc <span class="hint">(0-128)</span></label><input id="aac-jc" type="number" min="0" max="128" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-jmin">Jmin <span class="hint">(0-1280)</span></label><input id="aac-jmin" type="number" min="0" max="1280" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-jmax">Jmax <span class="hint">(0-1280)</span></label><input id="aac-jmax" type="number" min="0" max="1280" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-s1">S1 <span class="hint">(0-255)</span></label><input id="aac-s1" type="number" min="0" max="255" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-s2">S2 <span class="hint">(0-255)</span></label><input id="aac-s2" type="number" min="0" max="255" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-h1">H1 <span class="hint">(0-2147483647)</span></label><input id="aac-h1" type="number" min="0" max="2147483647" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-h2">H2 <span class="hint">(0-2147483647)</span></label><input id="aac-h2" type="number" min="0" max="2147483647" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-h3">H3 <span class="hint">(0-2147483647)</span></label><input id="aac-h3" type="number" min="0" max="2147483647" class="field-input" autocomplete="off" disabled></div>
-          <div class="amn-field"><label for="aac-h4">H4 <span class="hint">(0-2147483647)</span></label><input id="aac-h4" type="number" min="0" max="2147483647" class="field-input" autocomplete="off" disabled></div>
+        <div class="amn-cluster">
+          <div class="amn-cluster-title">Junk packets</div>
+          <div class="amn-grid">
+            <div class="amn-field"><label for="aac-jc">Jc <span class="hint">(0-128)</span></label><input id="aac-jc" type="number" inputmode="numeric" min="0" max="128" class="field-input" autocomplete="off" disabled></div>
+            <div class="amn-field"><label for="aac-jmin">Jmin <span class="hint">(0-1280)</span></label><input id="aac-jmin" type="number" inputmode="numeric" min="0" max="1280" class="field-input" autocomplete="off" disabled></div>
+            <div class="amn-field"><label for="aac-jmax">Jmax <span class="hint">(0-1280)</span></label><input id="aac-jmax" type="number" inputmode="numeric" min="0" max="1280" class="field-input" autocomplete="off" disabled></div>
+            <div class="amn-field"><label for="aac-s1">S1 <span class="hint">(0-255)</span></label><input id="aac-s1" type="number" inputmode="numeric" min="0" max="255" class="field-input" autocomplete="off" disabled></div>
+            <div class="amn-field"><label for="aac-s2">S2 <span class="hint">(0-255)</span></label><input id="aac-s2" type="number" inputmode="numeric" min="0" max="255" class="field-input" autocomplete="off" disabled></div>
+          </div>
+        </div>
+        <div class="amn-cluster">
+          <div class="amn-cluster-title">Handshake headers</div>
+          <div class="amn-grid">
+            <div class="amn-field"><label for="aac-h1">H1 <span class="hint">(int or lo-hi)</span></label><input id="aac-h1" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false" disabled></div>
+            <div class="amn-field"><label for="aac-h2">H2 <span class="hint">(int or lo-hi)</span></label><input id="aac-h2" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false" disabled></div>
+            <div class="amn-field"><label for="aac-h3">H3 <span class="hint">(int or lo-hi)</span></label><input id="aac-h3" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false" disabled></div>
+            <div class="amn-field"><label for="aac-h4">H4 <span class="hint">(int or lo-hi)</span></label><input id="aac-h4" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false" disabled></div>
+          </div>
+        </div>
+        <div class="seg-row" role="radiogroup" aria-label="Quick Amnezia presets">
+          <label class="seg"><input type="radio" name="amn-preset-acct" value="mild" onchange="amnApplyPreset('mild')"><span>Mild</span></label>
+          <label class="seg"><input type="radio" name="amn-preset-acct" value="aggressive" onchange="amnApplyPreset('aggressive')"><span>Aggressive</span></label>
         </div>
         <div class="preset-actions">
-          <button onclick="amnApplyPreset('mild')" class="btn-secondary btn-sm-tap">Mild</button>
-          <button onclick="amnApplyPreset('aggressive')" class="btn-secondary btn-sm-tap">Aggressive</button>
           <button onclick="amnResetToGlobal()" class="btn-secondary btn-sm-tap">Reset to global</button>
           <button onclick="saveAccountAmnezia()" class="btn-primary btn-sm-tap" id="btn-save-amn-acct">Save</button>
         </div>
-      </div>
-
-      <div class="panel">
-        <h3 class="panel-label">Subscription URLs</h3>
-        <div id="client-pills" class="pill-row" role="group" aria-label="Show URLs for a specific app"></div>
-        <div id="picker-hint" class="picker-hint hidden"></div>
-        <div id="sub-urls" class="stack-sm"></div>
       </div>
 
       <div class="panel danger-zone">
@@ -1825,7 +1990,7 @@ ${SHARED_CSS}
     </div>
 
     <div id="view-settings" class="hidden">
-      <h2 class="view-title" style="margin-bottom:1.5rem;">Settings</h2>
+      <h2 class="view-title settings-title">Settings</h2>
 
       <div class="panel">
         <div class="view-head" style="margin-bottom:1rem;">
@@ -1834,8 +1999,10 @@ ${SHARED_CSS}
         </div>
         <div id="presets-list" class="stack-sm"></div>
         <div id="add-preset-form" class="inline-form hidden">
-          <input id="preset-name" type="text" placeholder="Preset name" autocomplete="off" class="field-input" aria-label="Preset name">
-          <div id="preset-endpoints" class="stack-sm" style="margin-bottom:.75rem;"></div>
+          <input id="preset-name" type="text" maxlength="100" placeholder="Preset name" autocomplete="off" class="field-input" aria-label="Preset name">
+          <label for="preset-dns" class="bulk-label">DNS server for this preset <span class="hint">(optional, overrides global default)</span></label>
+          <input id="preset-dns" type="text" list="dns-suggestions" placeholder="Blank = use 1.1.1.1" autocomplete="off" spellcheck="false" class="field-input mono-area">
+          <div id="preset-endpoints" class="stack-sm" style="margin-top:.75rem;margin-bottom:.75rem;"></div>
           <button onclick="addPresetEndpointRow()" class="link-btn">+ Add endpoint</button>
           <label for="preset-bulk" class="bulk-label">Bulk paste — one endpoint per line: <span class="mono-hint">ip:port</span>, <span class="mono-hint">host:port</span> or <span class="mono-hint">[ipv6]:port</span></label>
           <textarea id="preset-bulk" rows="4" autocomplete="off" spellcheck="false" class="field-input mono-area" placeholder="162.159.192.1:2408&#10;[2606:4700:d0::a29f:c001]:2408" aria-label="Bulk paste endpoints"></textarea>
@@ -1848,64 +2015,72 @@ ${SHARED_CSS}
         </div>
       </div>
 
-      <div class="panel" style="margin-bottom:0;">
-        <h3 class="panel-label">Amnezia Defaults</h3>
-        <div id="amn-error" class="form-error hidden"></div>
-        <div class="amn-grid">
-          <div class="amn-field">
-            <label for="amn-jc">Jc <span class="hint">(0-128)</span></label>
-            <input id="amn-jc" type="number" min="0" max="128" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-jmin">Jmin <span class="hint">(0-1280)</span></label>
-            <input id="amn-jmin" type="number" min="0" max="1280" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-jmax">Jmax <span class="hint">(0-1280)</span></label>
-            <input id="amn-jmax" type="number" min="0" max="1280" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-s1">S1 <span class="hint">(0-255)</span></label>
-            <input id="amn-s1" type="number" min="0" max="255" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-s2">S2 <span class="hint">(0-255)</span></label>
-            <input id="amn-s2" type="number" min="0" max="255" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-h1">H1 <span class="hint">(0-2147483647)</span></label>
-            <input id="amn-h1" type="number" min="0" max="2147483647" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-h2">H2 <span class="hint">(0-2147483647)</span></label>
-            <input id="amn-h2" type="number" min="0" max="2147483647" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-h3">H3 <span class="hint">(0-2147483647)</span></label>
-            <input id="amn-h3" type="number" min="0" max="2147483647" class="field-input" autocomplete="off">
-          </div>
-          <div class="amn-field">
-            <label for="amn-h4">H4 <span class="hint">(0-2147483647)</span></label>
-            <input id="amn-h4" type="number" min="0" max="2147483647" class="field-input" autocomplete="off">
-          </div>
-        </div>
-        <button onclick="saveAmnezia()" class="btn-primary" id="btn-save-amnezia">Save Amnezia Defaults</button>
-      </div>
-
       <div class="panel">
         <h3 class="panel-label">Group Subscriptions</h3>
         <p class="modal-note">Merge every account sharing a group tag into one subscription URL. Set tags on accounts in their detail view first.</p>
         <div id="agg-groups-row" class="pill-row" role="group" aria-label="Pick groups to merge"></div>
         <div class="input-row" style="margin-top:.75rem;">
-          <input id="agg-label" type="text" maxlength="100" placeholder="Label (optional)" autocomplete="off" class="field-input">
-          <input id="agg-expiry" type="date" class="field-input" style="max-width:11rem;">
+          <input id="agg-label" type="text" maxlength="100" placeholder="Label (optional)" aria-label="Group subscription label (optional)" autocomplete="off" class="field-input">
+          <input id="agg-expiry" type="date" aria-label="Expires on" class="field-input w-fixed">
           <button onclick="createAggSub()" class="btn-primary" id="btn-agg-create">Create</button>
         </div>
         <div id="agg-error" class="form-error hidden" role="alert"></div>
         <div id="agg-list" class="stack-sm" style="margin-top:1rem;"></div>
       </div>
 
-      <div class="panel" style="margin-bottom:0;">
+      <div class="panel">
+        <h3 class="panel-label">Amnezia Defaults</h3>
+        <div id="amn-error" class="form-error hidden" role="alert"></div>
+        <div class="amn-cluster">
+          <div class="amn-cluster-title">Junk packets</div>
+          <div class="amn-grid">
+            <div class="amn-field">
+              <label for="amn-jc">Jc <span class="hint">(0-128)</span></label>
+              <input id="amn-jc" type="number" inputmode="numeric" min="0" max="128" class="field-input" autocomplete="off">
+            </div>
+            <div class="amn-field">
+              <label for="amn-jmin">Jmin <span class="hint">(0-1280)</span></label>
+              <input id="amn-jmin" type="number" inputmode="numeric" min="0" max="1280" class="field-input" autocomplete="off">
+            </div>
+            <div class="amn-field">
+              <label for="amn-jmax">Jmax <span class="hint">(0-1280)</span></label>
+              <input id="amn-jmax" type="number" inputmode="numeric" min="0" max="1280" class="field-input" autocomplete="off">
+            </div>
+            <div class="amn-field">
+              <label for="amn-s1">S1 <span class="hint">(0-255)</span></label>
+              <input id="amn-s1" type="number" inputmode="numeric" min="0" max="255" class="field-input" autocomplete="off">
+            </div>
+            <div class="amn-field">
+              <label for="amn-s2">S2 <span class="hint">(0-255)</span></label>
+              <input id="amn-s2" type="number" inputmode="numeric" min="0" max="255" class="field-input" autocomplete="off">
+            </div>
+          </div>
+        </div>
+        <div class="amn-cluster">
+          <div class="amn-cluster-title">Handshake headers</div>
+          <div class="amn-grid">
+            <div class="amn-field">
+              <label for="amn-h1">H1 <span class="hint">(int or lo-hi)</span></label>
+              <input id="amn-h1" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="amn-field">
+              <label for="amn-h2">H2 <span class="hint">(int or lo-hi)</span></label>
+              <input id="amn-h2" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="amn-field">
+              <label for="amn-h3">H3 <span class="hint">(int or lo-hi)</span></label>
+              <input id="amn-h3" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false">
+            </div>
+            <div class="amn-field">
+              <label for="amn-h4">H4 <span class="hint">(int or lo-hi)</span></label>
+              <input id="amn-h4" type="text" inputmode="numeric" class="field-input mono-area" autocomplete="off" spellcheck="false">
+            </div>
+          </div>
+        </div>
+        <button onclick="saveAmnezia()" class="btn-primary" id="btn-save-amnezia">Save Amnezia Defaults</button>
+      </div>
+
+      <div class="panel">
         <h3 class="panel-label">Backup &amp; Restore</h3>
         <p class="modal-note">Export bundles every account (including private keys), presets and settings into one AES-GCM encrypted file.</p>
         <div class="btn-row" style="margin-bottom:1rem;">
@@ -1913,7 +2088,7 @@ ${SHARED_CSS}
         </div>
         <label for="backup-import-file" class="field-label">Restore from backup file</label>
         <div class="input-row">
-          <input id="backup-import-file" type="file" accept=".wgenc,.bin,application/octet-stream" class="field-input" style="padding:.45rem;">
+          <input id="backup-import-file" type="file" accept=".wgenc,.bin,application/octet-stream" class="field-input file-input">
         </div>
         <label for="backup-import-password" class="field-label">Backup password</label>
         <div class="input-row">
@@ -1934,8 +2109,8 @@ ${SHARED_CSS}
       <div class="sheet sheet-md modal-pop">
         <h3 id="t-create" class="sheet-title">Create New Account</h3>
         <label for="create-name" class="field-label">Account Name</label>
-        <input id="create-name" type="text" placeholder="e.g. Home ISP" autocomplete="off" class="field-input" autofocus>
-        <div id="create-error" class="form-error hidden"></div>
+        <input id="create-name" type="text" maxlength="100" placeholder="e.g. Home ISP" autocomplete="off" class="field-input">
+        <div id="create-error" class="form-error hidden" role="alert"></div>
         <div class="sheet-actions">
           <button onclick="closeModal('modal-create')" class="btn-secondary">Cancel</button>
           <button onclick="createAccount()" class="btn-primary" id="btn-create">Create</button>
@@ -1947,7 +2122,7 @@ ${SHARED_CSS}
       <div class="sheet sheet-lg modal-pop">
         <h3 id="t-import" class="sheet-title">Import Config</h3>
         <label for="import-name" class="field-label">Account Name</label>
-        <input id="import-name" type="text" placeholder="Account name" autocomplete="off" class="field-input">
+        <input id="import-name" type="text" maxlength="100" placeholder="Account name" autocomplete="off" class="field-input">
         <label for="import-config" class="field-label">Configuration</label>
         <div id="import-drop" class="drop-zone">
           Drop <span class="mono-hint">.conf</span>, <span class="mono-hint">.txt</span> or <span class="mono-hint">.zip</span> here, or <label for="import-file" class="link-btn">choose a file</label>
@@ -1955,7 +2130,7 @@ ${SHARED_CSS}
         </div>
         <textarea id="import-config" rows="8" placeholder="Paste WireGuard .conf or wg:// URI..." class="field-input mono-area"></textarea>
         <p class="modal-note">Supports WireGuard .conf and wg:// URI formats</p>
-        <div id="import-error" class="form-error hidden"></div>
+        <div id="import-error" class="form-error hidden" role="alert"></div>
         <div class="sheet-actions">
           <button onclick="closeModal('modal-import')" class="btn-secondary">Cancel</button>
           <button onclick="importAccount()" class="btn-primary" id="btn-import">Import</button>
@@ -1966,10 +2141,15 @@ ${SHARED_CSS}
     <div id="modal-qr" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="t-qr" onclick="if(event.target===this)closeModal('modal-qr')">
       <div class="sheet sheet-sm modal-pop">
         <h3 id="t-qr" class="sheet-title">Scan to Import</h3>
-        <div id="qr-box" class="qr-box"></div>
+        <div class="qr-frame">
+          <div id="qr-box" class="qr-box"></div>
+          <span class="tick-bl" aria-hidden="true"></span>
+          <span class="tick-br" aria-hidden="true"></span>
+        </div>
+        <div id="qr-meta" class="qr-meta"></div>
         <div id="qr-url" class="qr-url"></div>
         <div class="sheet-actions">
-          <button onclick="copyQrUrl()" class="btn-secondary" id="btn-copy-qr">Copy URL</button>
+          <button onclick="copyQrUrl(this)" class="btn-secondary" id="btn-copy-qr">Copy URL</button>
           <button onclick="closeModal('modal-qr')" class="btn-primary">Done</button>
         </div>
       </div>
@@ -1993,8 +2173,13 @@ ${SHARED_CSS}
         <label for="token-label-input" class="field-label">Label</label>
         <input id="token-label-input" type="text" maxlength="100" placeholder="Optional — e.g. Phone" autocomplete="off" class="field-input">
         <label for="token-expiry-input" class="field-label">Expires</label>
+        <div id="expiry-chips" class="pill-row" role="group" aria-label="Expiry shortcuts">
+          <button type="button" data-days="7" class="pill">7d</button>
+          <button type="button" data-days="30" class="pill">30d</button>
+          <button type="button" data-days="90" class="pill">90d</button>
+        </div>
         <div class="input-row">
-          <input id="token-expiry-input" type="date" class="field-input">
+          <input id="token-expiry-input" type="date" aria-label="Expiry date" class="field-input">
           <button onclick="clearTokenExpiry()" class="btn-secondary">Never</button>
         </div>
         <label class="amn-toggle-row" for="token-enabled-toggle">
@@ -2014,10 +2199,10 @@ ${SHARED_CSS}
       <div class="sheet sheet-md modal-pop">
         <h3 id="t-latency" class="sheet-title">Endpoint Reachability</h3>
         <p class="modal-note">Approximate reachability timing only — browsers cannot ping UDP WireGuard endpoints. Fast failures usually mean the host answered; 3s timeouts mean a blackhole. Not a true latency measurement.</p>
-        <div id="lat-status" class="picker-hint"></div>
-        <div id="lat-table-wrap" style="max-height:40vh;overflow:auto;">
-          <table class="lat-table">
-            <thead><tr><th>Endpoint</th><th style="text-align:right;">ms</th></tr></thead>
+        <div id="lat-status" class="picker-hint" role="status" aria-live="polite"></div>
+        <div id="lat-table-wrap" class="lat-wrap">
+          <table class="lat-table" aria-label="Endpoints sorted by measured reachability time">
+            <thead><tr><th scope="col">Endpoint</th><th scope="col" style="text-align:right;">ms</th></tr></thead>
             <tbody id="lat-tbody"></tbody>
           </table>
         </div>
@@ -2155,6 +2340,8 @@ ${SHARED_CSS}
         document.getElementById('stat-accounts').innerHTML = '<span class="dot dot-cyan"></span>' + accounts.length + ' account' + (accounts.length !== 1 ? 's' : '');
       }
       document.getElementById('stat-presets').innerHTML = '<span class="dot dot-violet"></span>' + presets.length + ' presets';
+      var fmtEl = document.getElementById('stat-formats');
+      if (fmtEl) fmtEl.innerHTML = '<span class="dot dot-cyan"></span>' + SUB_FORMATS.length + ' formats';
     }
 
     function setLoading(btn, loading) {
@@ -2178,17 +2365,32 @@ ${SHARED_CSS}
         ? '<svg class="ticon ticon-err" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>'
         : '<svg class="ticon ticon-ok" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
       el.className = 'toast toast-in' + (isErr ? ' toast-error' : '');
+      el.setAttribute('role', isErr ? 'alert' : 'status');
       el.innerHTML = icon + '<span class="toast-body">' + escHtml(msg) + '</span>' +
         '<button onclick="this.parentElement.remove()" class="toast-close" aria-label="Dismiss">' +
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
         '</button>' +
         '<span class="toast-bar' + (isErr ? ' toast-bar-err' : '') + '" style="animation: toast-progress 3.5s linear forwards;"></span>';
       container.appendChild(el);
-      setTimeout(function() {
+      var bar = el.querySelector('.toast-bar');
+      var gone = false;
+      function dismiss() {
+        if (gone) return;
+        gone = true;
         el.classList.remove('toast-in');
         el.classList.add('toast-out');
         setTimeout(function() { if (el.parentNode) el.remove(); }, 300);
-      }, 3500);
+      }
+      var hideTimer = setTimeout(dismiss, 3500);
+      el.addEventListener('mouseenter', function() {
+        clearTimeout(hideTimer);
+        if (bar) bar.style.animationPlayState = 'paused';
+      });
+      el.addEventListener('mouseleave', function() {
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(dismiss, 1200);
+        if (bar) bar.style.animationPlayState = '';
+      });
     }
 
     /* =============== CONFIRM DIALOG =============== */
@@ -2218,12 +2420,14 @@ ${SHARED_CSS}
           okBtn.textContent = 'Confirm';
         }
         document.getElementById('modal-confirm').classList.remove('hidden');
+        lockBodyScroll();
         document.getElementById('confirm-cancel').focus();
       });
     }
 
     function confirmAction(result) {
       document.getElementById('modal-confirm').classList.add('hidden');
+      unlockBodyScroll();
       if (_confirmOpener && typeof _confirmOpener.focus === 'function' && document.contains(_confirmOpener)) {
         _confirmOpener.focus();
       }
@@ -2236,23 +2440,54 @@ ${SHARED_CSS}
     }
 
     /* =============== MODALS =============== */
+    var _modalReturnFocus = null;
+
+    function lockBodyScroll() { document.body.style.overflow = 'hidden'; }
+    function unlockBodyScroll() {
+      var overlays = document.querySelectorAll('.overlay');
+      for (var i = 0; i < overlays.length; i++) {
+        if (!overlays[i].classList.contains('hidden')) return;
+      }
+      document.body.style.overflow = '';
+    }
+
+    function openModal(id, focusId) {
+      _modalReturnFocus = document.activeElement;
+      var m = document.getElementById(id);
+      m.classList.remove('hidden', 'closing');
+      lockBodyScroll();
+      if (focusId) {
+        var f = document.getElementById(focusId);
+        if (f) f.focus();
+      }
+    }
+
     function closeModal(id) {
-      document.getElementById(id).classList.add('hidden');
+      var m = document.getElementById(id);
+      if (!m || m.classList.contains('hidden')) return;
+      m.classList.add('closing');
+      setTimeout(function() {
+        m.classList.add('hidden');
+        m.classList.remove('closing');
+        unlockBodyScroll();
+      }, 150);
+      if (_modalReturnFocus && typeof _modalReturnFocus.focus === 'function' && document.contains(_modalReturnFocus)) {
+        _modalReturnFocus.focus();
+      }
+      _modalReturnFocus = null;
     }
 
     function showCreateModal() {
       document.getElementById('create-name').value = '';
       document.getElementById('create-error').classList.add('hidden');
-      document.getElementById('modal-create').classList.remove('hidden');
-      document.getElementById('create-name').focus();
+      openModal('modal-create', 'create-name');
     }
 
     function showImportModal() {
       document.getElementById('import-name').value = '';
       document.getElementById('import-config').value = '';
       document.getElementById('import-error').classList.add('hidden');
-      document.getElementById('modal-import').classList.remove('hidden');
-      document.getElementById('import-name').focus();
+      openModal('modal-import', 'import-name');
     }
 
     /* =============== API HELPER =============== */
@@ -2306,9 +2541,12 @@ ${SHARED_CSS}
       document.getElementById('view-settings').classList.toggle('hidden', view !== 'settings');
       var btns = document.querySelectorAll('.nav-btn');
       for (var i = 0; i < btns.length; i++) {
-        btns[i].classList.toggle('nav-active', btns[i].dataset.view === view);
+        var match = btns[i].dataset.view === view;
+        btns[i].classList.toggle('nav-active', match);
+        if (match) btns[i].setAttribute('aria-current', 'page');
+        else btns[i].removeAttribute('aria-current');
       }
-      if (view === 'accounts' || view === 'settings') {
+      if (view === 'accounts' || view === 'settings' || view === 'detail') {
         var vEl = document.getElementById('view-' + view);
         vEl.classList.remove('view-enter');
         void vEl.offsetWidth;
@@ -2403,7 +2641,7 @@ ${SHARED_CSS}
         var hasAmn = !!a.amnezia_overrides;
         var life = tokenLifecycle(a);
         var dotTitle = life === 'expired' ? 'Token expired' : (life === 'revoked' ? 'Token revoked' : 'Active');
-        return '<button type="button" class="acct-card spot card-hover" style="--i:' + i + '" onclick="navigate(\'detail\', \'' + a.id + '\')" aria-label="Open account ' + escHtml(a.name) + '">' +
+        return '<button type="button" class="acct-card spot card-hover" style="--i:' + Math.min(i, 10) + '" onclick="navigate(\'detail\', \'' + a.id + '\')" aria-label="Open account ' + escHtml(a.name) + '">' +
           '<span class="acct-status-dot' + (life === 'active' ? '' : ' dot-bad') + '" title="' + dotTitle + '" aria-hidden="true"></span>' +
           '<span class="acct-head">' +
             '<span class="avatar ' + grad + '">' + escHtml(initials) + '</span>' +
@@ -2439,6 +2677,8 @@ ${SHARED_CSS}
         renderTokenFacts();
         document.getElementById('edit-name').value = currentAccount.name;
         document.getElementById('edit-group').value = currentAccount.group || '';
+        document.getElementById('edit-dns').value = currentAccount.dns || '';
+        renderGroupSuggestions();
         await loadPresetsForSelect();
         if (isStale()) return;
         await loadAccountAmnezia();
@@ -2470,9 +2710,9 @@ ${SHARED_CSS}
       renderToken();
     }
 
-    function copyToken() {
+    function copyToken(btn) {
       var token = currentAccount ? currentAccount.token : '';
-      copyToClipboard(token, 'Token copied!');
+      copyToClipboard(token, 'Token copied!', btn);
     }
 
     /* =============== TOKEN LIFECYCLE =============== */
@@ -2540,14 +2780,15 @@ ${SHARED_CSS}
       expInput.value = (meta.expiresAt && !isNaN(Date.parse(meta.expiresAt)))
         ? new Date(meta.expiresAt).toISOString().slice(0, 10)
         : '';
+      syncExpiryChips();
       document.getElementById('token-enabled-toggle').checked = meta.disabled !== true;
       document.getElementById('token-edit-error').classList.add('hidden');
-      document.getElementById('modal-token-edit').classList.remove('hidden');
-      document.getElementById('token-label-input').focus();
+      openModal('modal-token-edit', 'token-label-input');
     }
 
     function clearTokenExpiry() {
       document.getElementById('token-expiry-input').value = '';
+      syncExpiryChips();
     }
 
     function syncAccountsEntry(acct) {
@@ -2587,9 +2828,25 @@ ${SHARED_CSS}
       setLoading(btn, false);
     }
 
-    function copyToClipboard(text, successMsg) {
+    var ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+    function flashCopied(btn) {
+      if (!btn || btn.dataset.lock) return;
+      btn.dataset.lock = '1';
+      var orig = btn.innerHTML;
+      btn.classList.add('copied');
+      btn.innerHTML = ICON_CHECK;
+      setTimeout(function() {
+        btn.classList.remove('copied');
+        btn.innerHTML = orig;
+        delete btn.dataset.lock;
+      }, 1600);
+    }
+
+    function copyToClipboard(text, successMsg, btn) {
       try { localStorage.setItem('wg_checklist_url_copied', '1'); } catch {}
       if (successMsg === 'URL copied!') renderChecklist();
+      flashCopied(btn);
       function legacyCopy() {
         var ta = document.createElement('textarea');
         ta.value = text;
@@ -2651,7 +2908,9 @@ ${SHARED_CSS}
         var url = subUrlFor(token, f.key);
         var idx = subUrlsCache.length;
         subUrlsCache.push(url);
-        var safeUrl = escHtml(url);
+        var cut = url.lastIndexOf('/');
+        var head = escHtml(url.slice(0, cut));
+        var tail = escHtml(url.slice(cut));
         var amnBadge = f.kind === 'amz'
           ? ' <span class="amz-tag">AMZ</span>'
           : '';
@@ -2672,33 +2931,39 @@ ${SHARED_CSS}
           '<span class="fmt-box">' + FMT_ICONS[f.icon] + '</span>' +
           '<div class="sub-info">' +
             '<div class="sub-name">' + escHtml(f.label) + amnBadge + recBadge + '</div>' +
-            '<div class="sub-url">' + safeUrl + '</div>' +
+            '<div class="sub-url"><span class="u-head">' + head + '</span><span class="u-tail">' + tail + '</span></div>' +
             hintText +
           '</div>' +
-          '<button onclick="copyToClipboard(subUrlsCache[' + idx + '], \'URL copied!\')" title="Copy URL" class="icon-btn" aria-label="Copy URL">' + ICON_COPY + '</button>' +
+          '<button onclick="copyToClipboard(subUrlsCache[' + idx + '], \'URL copied!\', this)" title="Copy URL" class="icon-btn" aria-label="Copy URL">' + ICON_COPY + '</button>' +
           '<button onclick="openQr(' + idx + ')" title="Show QR code" class="icon-btn" aria-label="Show QR code">' + ICON_QR + '</button>' +
           dlBtns +
-          '<a href="' + safeUrl + '" target="_blank" rel="noopener" title="Open URL" class="icon-btn" aria-label="Open URL">' + ICON_OPEN + '</a>' +
+          '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" title="Open URL" class="icon-btn" aria-label="Open URL">' + ICON_OPEN + '</a>' +
         '</div>';
       }).join('');
     }
 
     function openQr(idx) {
-      openQrUrl(subUrlsCache[idx]);
+      openQrUrl(subUrlsCache[idx], SUB_FORMATS[idx] ? SUB_FORMATS[idx].label : '');
     }
 
-    function openQrUrl(url) {
+    function openQrUrl(url, fmtLabel) {
       if (!url) return;
       var box = document.getElementById('qr-box');
       var svg = qrSvg(url, 200);
       box.innerHTML = svg || '<p style="color:#ef4444;font-size:13px;">URL too long for QR</p>';
       currentQrUrl = url;
       document.getElementById('qr-url').textContent = url;
-      document.getElementById('modal-qr').classList.remove('hidden');
+      var meta = document.getElementById('qr-meta');
+      if (meta) {
+        meta.innerHTML = fmtLabel
+          ? '<span class="tchip">' + escHtml(fmtLabel) + '</span>'
+          : '';
+      }
+      openModal('modal-qr');
     }
 
-    function copyQrUrl() {
-      copyToClipboard(currentQrUrl, 'URL copied!');
+    function copyQrUrl(btn) {
+      copyToClipboard(currentQrUrl, 'URL copied!', btn);
     }
 
     /* =============== WARP STATUS CHIP (B10) =============== */
@@ -2730,7 +2995,7 @@ ${SHARED_CSS}
         return;
       }
       var up = warpStatus.ok === true;
-      el.innerHTML = '<span class="dot" style="background:' + (up ? '#34d399' : '#ef4444') + ';"></span>WARP: ' +
+      el.innerHTML = '<span class="dot" style="background:var(--' + (up ? 'green' : 'red') + ');"></span>WARP: ' +
         (up ? 'up' : 'down') + ' &middot; ' + escHtml(relTime(warpStatus.checkedAt));
       var tip = 'Last WARP registration attempt: ' + new Date(warpStatus.checkedAt).toLocaleString();
       if (!up && warpStatus.lastError) tip += '\nError: ' + warpStatus.lastError;
@@ -2774,7 +3039,7 @@ ${SHARED_CSS}
         '<div class="check-banner fade-up">' +
           '<div class="check-banner-head">' +
             '<strong>Getting started</strong>' +
-            '<button onclick="dismissChecklist()" class="toast-close" aria-label="Dismiss checklist">' +
+            '<button onclick="dismissChecklist()" class="banner-close" aria-label="Dismiss checklist">' +
               '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
             '</button>' +
           '</div>' +
@@ -2882,7 +3147,31 @@ ${SHARED_CSS}
         var updated = await api('/api/account/' + currentAccountId, { method: 'PUT', body: { group: raw || null } });
         currentAccount = updated;
         document.getElementById('edit-group').value = updated.group || '';
+        renderGroupSuggestions();
         toast(updated.group ? 'Group tag saved' : 'Group tag cleared');
+      } catch (e) { toast(e.message, 'error'); }
+      setLoading(btn, false);
+    }
+
+    function renderGroupSuggestions() {
+      var dl = document.getElementById('group-tags');
+      if (!dl) return;
+      var groups = distinctAccountGroups();
+      var html = '';
+      for (var i = 0; i < groups.length; i++) {
+        html += '<option value="' + escHtml(groups[i]) + '"></option>';
+      }
+      dl.innerHTML = html;
+    }
+
+    async function updateAccountDns() {
+      var raw = document.getElementById('edit-dns').value.trim();
+      var btn = document.getElementById('btn-save-dns');
+      setLoading(btn, true);
+      try {
+        await api('/api/account/' + currentAccountId, { method: 'PUT', body: { dns: raw || null } });
+        currentAccount.dns = raw || null;
+        toast(raw ? 'DNS server saved' : 'DNS cleared — inherits preset or default');
       } catch (e) { toast(e.message, 'error'); }
       setLoading(btn, false);
     }
@@ -2927,9 +3216,23 @@ ${SHARED_CSS}
     }
 
     /* =============== SETTINGS VIEW =============== */
+    function renderListSkeleton(el, rows) {
+      var html = '';
+      for (var i = 0; i < rows; i++) {
+        html += '<div class="skel-card"><div class="skel-row">' +
+          '<div class="skel-col"><div class="skel-a skeleton"></div><div class="skel-c skeleton"></div></div>' +
+          '<div class="skel-pill skeleton"></div></div></div>';
+      }
+      el.innerHTML = html;
+    }
+
     async function loadSettings(seq) {
       if (seq === undefined) seq = ++routeSeq;
       function isStale() { return seq !== routeSeq; }
+      var presetsEl = document.getElementById('presets-list');
+      var aggListEl = document.getElementById('agg-list');
+      if (presetsEl && !presets.length) renderListSkeleton(presetsEl, 2);
+      if (aggListEl && !aggSubs.length) renderListSkeleton(aggListEl, 1);
       try {
         var p = await api('/api/presets');
         if (isStale()) return;
@@ -2943,13 +3246,23 @@ ${SHARED_CSS}
         document.getElementById('amn-jmax').value = amn.Jmax;
         document.getElementById('amn-s1').value = amn.S1;
         document.getElementById('amn-s2').value = amn.S2;
-        document.getElementById('amn-h1').value = amn.H1;
-        document.getElementById('amn-h2').value = amn.H2;
-        document.getElementById('amn-h3').value = amn.H3;
-        document.getElementById('amn-h4').value = amn.H4;
+        document.getElementById('amn-h1').value = amn.H1 !== null && amn.H1 !== undefined ? amn.H1 : '';
+        document.getElementById('amn-h2').value = amn.H2 !== null && amn.H2 !== undefined ? amn.H2 : '';
+        document.getElementById('amn-h3').value = amn.H3 !== null && amn.H3 !== undefined ? amn.H3 : '';
+        document.getElementById('amn-h4').value = amn.H4 !== null && amn.H4 !== undefined ? amn.H4 : '';
         updateStats();
       } catch (e) {
-        if (!isStale()) toast(e.message, 'error');
+        if (!isStale()) {
+          if (presetsEl) {
+            presetsEl.innerHTML =
+              '<div class="error-cell">' +
+                '<div class="error-text">' + escHtml(e.message) + '</div>' +
+                '<button onclick="loadSettings()" class="btn-secondary">Retry</button>' +
+              '</div>';
+          } else {
+            toast(e.message, 'error');
+          }
+        }
       }
       api('/api/account').then(function(list) {
         if (isStale()) return;
@@ -2965,7 +3278,19 @@ ${SHARED_CSS}
     function renderPresets() {
       var list = document.getElementById('presets-list');
       if (presets.length === 0) {
-        list.innerHTML = '<div style="color:var(--text-dim);text-align:center;padding:1.5rem 0;font-size:.875rem;">No presets configured. Add one to get started.</div>';
+        list.innerHTML =
+          '<div class="empty-card">' +
+            '<div class="empty-icon">' +
+              '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+                '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>' +
+              '</svg>' +
+            '</div>' +
+            '<h3 class="empty-title">No endpoint presets</h3>' +
+            '<p class="empty-msg">Presets hold reusable endpoint lists your accounts can share. Add one to get started.</p>' +
+            '<div class="empty-actions">' +
+              '<button onclick="showAddPresetForm()" class="btn-primary">Add Preset</button>' +
+            '</div>' +
+          '</div>';
         return;
       }
       list.innerHTML = presets.map(function(p) {
@@ -3023,7 +3348,7 @@ ${SHARED_CSS}
       document.getElementById('lat-tbody').innerHTML = '';
       document.getElementById('lat-status').textContent = 'Probing ' + p.endpoints.length + ' endpoint' + (p.endpoints.length !== 1 ? 's' : '') + '...';
       document.getElementById('btn-save-order').disabled = true;
-      document.getElementById('modal-latency').classList.remove('hidden');
+      openModal('modal-latency');
       var probes = p.endpoints.map(function(ep, idx) {
         return probeEndpoint(String(ep.ip).replace(/^\[|\]$/g, ''), ep.port).then(function(r) {
           return { idx: idx, label: ep.ip + ':' + ep.port, ms: r.ms, timeout: r.timeout };
@@ -3044,9 +3369,17 @@ ${SHARED_CSS}
           return a.ms - b.ms;
         });
       }
+      function heat(ms) {
+        if (ms <= 120) return 'lat-fast';
+        if (ms <= 300) return 'lat-ok';
+        if (ms <= 800) return 'lat-slow';
+        return 'lat-dead';
+      }
       var body = document.getElementById('lat-tbody');
       body.innerHTML = rows.map(function(r) {
-        var msCell = r.timeout ? '<span style="color:#ef4444;">timeout</span>' : String(r.ms);
+        var msCell = r.timeout
+          ? '<span class="lat-dead">timeout</span>'
+          : '<span class="' + heat(r.ms) + '">' + r.ms + '</span>';
         return '<tr><td>' + escHtml(r.label) + '</td><td style="text-align:right;">' + msCell + '</td></tr>';
       }).join('');
       document.getElementById('lat-status').textContent = 'Sorted by measured time. Saving writes this order into the preset as preferred order.';
@@ -3084,6 +3417,7 @@ ${SHARED_CSS}
     function resetPresetForm(editingId) {
       editingPresetId = editingId || null;
       document.getElementById('preset-name').value = '';
+      document.getElementById('preset-dns').value = '';
       document.getElementById('preset-endpoints').innerHTML = '';
       document.getElementById('preset-bulk').value = '';
       document.getElementById('bulk-error').classList.add('hidden');
@@ -3094,8 +3428,8 @@ ${SHARED_CSS}
       var row = document.createElement('div');
       row.className = 'ep-row';
       row.innerHTML =
-        '<input type="text" placeholder="IP or domain" autocomplete="off" class="mini-input ep-ip">' +
-        '<input type="number" placeholder="Port" min="1" max="65535" autocomplete="off" class="mini-input ep-port">' +
+        '<input type="text" placeholder="IP or domain" aria-label="Endpoint IP or domain" autocomplete="off" spellcheck="false" class="mini-input ep-ip">' +
+        '<input type="number" placeholder="Port" aria-label="Endpoint port" min="1" max="65535" inputmode="numeric" autocomplete="off" class="mini-input ep-port">' +
         '<button type="button" onclick="this.parentElement.remove()" class="ep-del" aria-label="Remove endpoint">&times;</button>';
       row.querySelector('.ep-ip').value = ip || '';
       row.querySelector('.ep-port').value = (port === undefined || port === null) ? '' : String(port);
@@ -3121,6 +3455,7 @@ ${SHARED_CSS}
         document.getElementById('preset-endpoints').appendChild(makeEpRow(p.endpoints[j].ip, p.endpoints[j].port));
       }
       document.getElementById('preset-name').value = p.name;
+      document.getElementById('preset-dns').value = p.dns || '';
       document.getElementById('preset-name').focus();
       document.getElementById('add-preset-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
@@ -3165,6 +3500,7 @@ ${SHARED_CSS}
     async function savePreset() {
       var name = document.getElementById('preset-name').value.trim();
       if (!name) return toast('Name is required', 'error');
+      var dns = document.getElementById('preset-dns').value.trim();
       var rows = document.getElementById('preset-endpoints').children;
       var endpoints = [];
       for (var i = 0; i < rows.length; i++) {
@@ -3178,10 +3514,10 @@ ${SHARED_CSS}
       setLoading(btn, true);
       try {
         if (editingPresetId) {
-          await api('/api/presets/' + editingPresetId, { method: 'PUT', body: { name: name, endpoints: endpoints } });
+          await api('/api/presets/' + editingPresetId, { method: 'PUT', body: { name: name, dns: dns || null, endpoints: endpoints } });
           toast('Preset updated');
         } else {
-          await api('/api/presets', { method: 'POST', body: { name: name, endpoints: endpoints } });
+          await api('/api/presets', { method: 'POST', body: { name: name, dns: dns || null, endpoints: endpoints } });
           toast('Preset created');
         }
         hideAddPresetForm();
@@ -3202,28 +3538,56 @@ ${SHARED_CSS}
 
     /* =============== AMNEZIA =============== */
     function validateAmnezia() {
-      var jc = parseInt(document.getElementById('amn-jc').value, 10);
-      var jmin = parseInt(document.getElementById('amn-jmin').value, 10);
-      var jmax = parseInt(document.getElementById('amn-jmax').value, 10);
-      var s1 = parseInt(document.getElementById('amn-s1').value, 10);
-      var s2 = parseInt(document.getElementById('amn-s2').value, 10);
-      var h1 = parseInt(document.getElementById('amn-h1').value, 10);
-      var h2 = parseInt(document.getElementById('amn-h2').value, 10);
-      var h3 = parseInt(document.getElementById('amn-h3').value, 10);
-      var h4 = parseInt(document.getElementById('amn-h4').value, 10);
+      var H_RE = /^\d+\s*-\s*\d+$/;
       var maxU32 = 2147483647;
       var errEl = document.getElementById('amn-error');
-
-      if (isNaN(jc) || jc < 0 || jc > 128) { errEl.textContent = 'Jc must be 0-128'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(jmin) || jmin < 0 || jmin > 1280) { errEl.textContent = 'Jmin must be 0-1280'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(jmax) || jmax < 0 || jmax > 1280) { errEl.textContent = 'Jmax must be 0-1280'; errEl.classList.remove('hidden'); return null; }
+      function intVal(id, name, min, max) {
+        var n = parseInt(document.getElementById(id).value, 10);
+        if (isNaN(n) || n < min || n > max) {
+          errEl.textContent = name + ' must be ' + min + '-' + max;
+          errEl.classList.remove('hidden');
+          return null;
+        }
+        return n;
+      }
+      function hVal(idx, name) {
+        var raw = document.getElementById('amn-h' + idx).value.trim();
+        if (H_RE.test(raw)) {
+          var parts = raw.split('-').map(function(x) { return parseInt(x, 10); });
+          if (isNaN(parts[0]) || isNaN(parts[1]) || parts[0] > parts[1] || parts[1] > maxU32) {
+            errEl.textContent = name + ' range invalid (lo<=hi, each 0-' + maxU32 + ')';
+            errEl.classList.remove('hidden');
+            return null;
+          }
+          return raw.replace(/\s+/g, '');
+        }
+        var n = parseInt(raw, 10);
+        if (isNaN(n) || String(n) !== raw || n < 0 || n > maxU32) {
+          errEl.textContent = name + ' must be 0-' + maxU32 + ' or a lo-hi range';
+          errEl.classList.remove('hidden');
+          return null;
+        }
+        return n;
+      }
+      var jc = intVal('amn-jc', 'Jc', 0, 128);
+      if (jc === null) return null;
+      var jmin = intVal('amn-jmin', 'Jmin', 0, 1280);
+      if (jmin === null) return null;
+      var jmax = intVal('amn-jmax', 'Jmax', 0, 1280);
+      if (jmax === null) return null;
       if (jmin > jmax) { errEl.textContent = 'Jmin must be <= Jmax'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(s1) || s1 < 0 || s1 > 255) { errEl.textContent = 'S1 must be 0-255'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(s2) || s2 < 0 || s2 > 255) { errEl.textContent = 'S2 must be 0-255'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(h1) || h1 < 0 || h1 > maxU32) { errEl.textContent = 'H1 must be 0-2147483647'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(h2) || h2 < 0 || h2 > maxU32) { errEl.textContent = 'H2 must be 0-2147483647'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(h3) || h3 < 0 || h3 > maxU32) { errEl.textContent = 'H3 must be 0-2147483647'; errEl.classList.remove('hidden'); return null; }
-      if (isNaN(h4) || h4 < 0 || h4 > maxU32) { errEl.textContent = 'H4 must be 0-2147483647'; errEl.classList.remove('hidden'); return null; }
+      var s1 = intVal('amn-s1', 'S1', 0, 255);
+      if (s1 === null) return null;
+      var s2 = intVal('amn-s2', 'S2', 0, 255);
+      if (s2 === null) return null;
+      var h1 = hVal(1, 'H1');
+      if (h1 === null) return null;
+      var h2 = hVal(2, 'H2');
+      if (h2 === null) return null;
+      var h3 = hVal(3, 'H3');
+      if (h3 === null) return null;
+      var h4 = hVal(4, 'H4');
+      if (h4 === null) return null;
 
       errEl.classList.add('hidden');
       return { Jc: jc, Jmin: jmin, Jmax: jmax, S1: s1, S2: s2, H1: h1, H2: h2, H3: h3, H4: h4 };
@@ -3253,8 +3617,7 @@ ${SHARED_CSS}
     function showBackupExport() {
       document.getElementById('backup-export-password').value = '';
       document.getElementById('backup-export-error').classList.add('hidden');
-      document.getElementById('modal-backup-export').classList.remove('hidden');
-      document.getElementById('backup-export-password').focus();
+      openModal('modal-backup-export', 'backup-export-password');
     }
 
     async function doBackupExport() {
@@ -3411,16 +3774,30 @@ ${SHARED_CSS}
       setLoading(btn, false);
     }
 
+    var aggLoadError = null;
+
     async function loadAggSubs() {
       try {
         aggSubs = await api('/api/agg');
-      } catch (e) { aggSubs = []; }
+        aggLoadError = null;
+      } catch (e) {
+        aggSubs = [];
+        aggLoadError = e.message;
+      }
       renderAggSubs();
     }
 
     function renderAggSubs() {
       var list = document.getElementById('agg-list');
       if (!list) return;
+      if (aggLoadError) {
+        list.innerHTML =
+          '<div class="error-cell">' +
+            '<div class="error-text">' + escHtml(aggLoadError) + '</div>' +
+            '<button onclick="loadAggSubs()" class="btn-secondary">Retry</button>' +
+          '</div>';
+        return;
+      }
       if (!aggSubs.length) {
         list.innerHTML = '<div style="color:var(--text-dim);font-size:.875rem;">No group subscriptions yet.</div>';
         return;
@@ -3432,6 +3809,9 @@ ${SHARED_CSS}
         var format = cached.format || 'singbox';
         aggUrlsCache[r.token] = { format: format };
         var url = location.origin + '/sub/' + r.token + '/' + format;
+        var cut = url.lastIndexOf('/');
+        var head = escHtml(url.slice(0, cut));
+        var tail = escHtml(url.slice(cut));
         var opts = SUB_FORMATS.map(function(f) {
           return '<option value="' + f.key + '"' + (f.key === format ? ' selected' : '') + '>' + escHtml(f.label) + '</option>';
         }).join('');
@@ -3456,14 +3836,14 @@ ${SHARED_CSS}
               (r.tokenMeta && typeof (r.tokenMeta || {}).expiresAt === 'string' && !isNaN(Date.parse(r.tokenMeta.expiresAt)) ? tokenExpiryChip(r) : '') +
               (state !== 'active' ? ' <span class="tchip tchip-red">' + state + '</span>' : '') +
             '</div>' +
-            '<div class="sub-url">' + escHtml(url) + '</div>' +
+            '<div class="sub-url"><span class="u-head">' + head + '</span><span class="u-tail">' + tail + '</span></div>' +
           '</div>' +
-          '<select onchange="onAggFormat(\'' + escHtml(r.token) + '\', this.value)" class="mini-input" style="max-width:11rem;" aria-label="Subscription format">' + opts + '</select>' +
-          '<button onclick="copyToClipboard(aggUrl(\'' + escHtml(r.token) + '\'), \'URL copied!\')" title="Copy URL" class="icon-btn" aria-label="Copy URL">' + ICON_COPY + '</button>' +
+          '<select onchange="onAggFormat(\'' + escHtml(r.token) + '\', this.value)" class="mini-input w-fixed" aria-label="Subscription format">' + opts + '</select>' +
+          '<button onclick="copyToClipboard(aggUrl(\'' + escHtml(r.token) + '\'), \'URL copied!\', this)" title="Copy URL" class="icon-btn" aria-label="Copy URL">' + ICON_COPY + '</button>' +
           '<button onclick="openQrUrl(aggUrl(\'' + escHtml(r.token) + '\'))" title="Show QR code" class="icon-btn" aria-label="Show QR code">' + ICON_QR + '</button>' +
           deepLinks +
           '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" title="Open URL" class="icon-btn" aria-label="Open URL">' + ICON_OPEN + '</a>' +
-          '<button onclick="revokeAggSub(\'' + escHtml(r.token) + '\')" title="Revoke group subscription" class="icon-btn" aria-label="Revoke group subscription" style="color:#ef4444;">&times;</button>' +
+          '<button onclick="revokeAggSub(\'' + escHtml(r.token) + '\')" title="Revoke group subscription" class="icon-btn icon-btn-danger" aria-label="Revoke group subscription">&times;</button>' +
         '</div>';
       }).join('');
     }
@@ -3570,6 +3950,8 @@ ${SHARED_CSS}
       amnFillFields(p);
       amnSetEnabled(true);
       amnShowError(null);
+      var radios = document.querySelectorAll('input[name="amn-preset-acct"]');
+      for (var i = 0; i < radios.length; i++) radios[i].checked = radios[i].value === kind;
     }
 
     async function persistAccountAmnezia(overrides) {
@@ -3592,13 +3974,20 @@ ${SHARED_CSS}
       var vals = amnCollectValues();
       var err = validateAmneziaValues(vals);
       if (err) return amnShowError(err);
-      var numeric = {};
-      for (var k in vals) numeric[k] = Number(vals[k]);
-      persistAccountAmnezia(numeric);
+      var out = {};
+      var H_RE = /^\d+\s*-\s*\d+$/;
+      for (var k in vals) {
+        out[k] = (typeof vals[k] === 'string' && H_RE.test(vals[k].trim()))
+          ? vals[k].trim().replace(/\s+/g, '')
+          : Number(vals[k]);
+      }
+      persistAccountAmnezia(out);
     }
 
     function amnResetToGlobal() {
       document.getElementById('amn-acct-toggle').checked = false;
+      var radios = document.querySelectorAll('input[name="amn-preset-acct"]');
+      for (var i = 0; i < radios.length; i++) radios[i].checked = false;
       persistAccountAmnezia(null);
     }
 
@@ -3732,11 +4121,46 @@ ${SHARED_CSS}
       });
     }
 
+    /* =============== EXPIRY SHORTCUT CHIPS =============== */
+    function expiryIso(days) {
+      return new Date(Date.now() + days * 86400000).toISOString().slice(0, 10);
+    }
+
+    function syncExpiryChips() {
+      var wrap = document.getElementById('expiry-chips');
+      if (!wrap) return;
+      var v = document.getElementById('token-expiry-input').value;
+      var btns = wrap.querySelectorAll('button[data-days]');
+      for (var i = 0; i < btns.length; i++) {
+        var match = v && v === expiryIso(Number(btns[i].dataset.days));
+        btns[i].classList.toggle('pill-active', !!match);
+      }
+    }
+
+    function wireExpiryChips() {
+      var wrap = document.getElementById('expiry-chips');
+      if (!wrap) return;
+      wrap.addEventListener('click', function(e) {
+        var b = e.target.closest('button[data-days]');
+        if (!b) return;
+        document.getElementById('token-expiry-input').value = expiryIso(Number(b.dataset.days));
+        syncExpiryChips();
+      });
+      var input = document.getElementById('token-expiry-input');
+      input.addEventListener('change', syncExpiryChips);
+      input.addEventListener('input', syncExpiryChips);
+    }
+
     /* =============== INIT =============== */
     (function() {
       wireImportDrop();
+      wireExpiryChips();
       loadWarpStatus();
       renderChecklist();
+      var headerEl = document.querySelector('.app-header');
+      window.addEventListener('scroll', function() {
+        headerEl.classList.toggle('scrolled', window.scrollY > 8);
+      }, { passive: true });
       var tokEl = document.getElementById('detail-token');
       tokEl.addEventListener('click', toggleTokenReveal);
       tokEl.addEventListener('keydown', function(e) {
@@ -3870,7 +4294,7 @@ function htmlResponse(html, status = 200) {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https:"
     }
   });
 }
