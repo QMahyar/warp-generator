@@ -2,6 +2,33 @@
 
 All notable changes to warp-generator are documented here.
 
+## [1.0.3] — 2026-08-24
+
+Hardening patch: aggregate-cache invalidation, race fixes, validation gaps, perf. 257 tests (16 new regressions in `test/b11-hardening.test.mjs`).
+
+### Fixed
+
+- **Stale group subscriptions** — account edit/delete now purges affected `agg:{token}` cache entries (was only on group change); deleted accounts no longer linger in group subs
+- **fetchCount lost-update race** — deferred counter write re-reads the record and merges, so a concurrent admin edit (e.g. revoking a token) can no longer be overwritten
+- **Session cookie parsing** — exact-name boundary; cookies like `admin_session=` or `xsession=` no longer authenticate as `session`
+- **Token regeneration ordering** — new mapping written first with compensating delete on failure; partial KV failure can no longer leave both tokens live
+- **Duplicate proxy names in group subs** — same-named member accounts get qualified tags (`Phone`, `Phone 2`); mihomo/sing-box reject duplicates
+- **Unknown preset_id** — rejected 400 at save time instead of 500 on every subscription fetch
+- **Backup import skip-mode** — no longer overwrites existing global Amnezia settings (`overwrite` still replaces them)
+- **Expiry cache window** — subscription `Cache-Control` max-age capped at token expiry so naturally-expiring tokens stop serving cached 200s
+
+### Changed
+
+- Aggregate serving reads `presets` once per request (was once per member) and expands members concurrently
+- Cache purges run in parallel; dashboard HTML serves `ETag`/304 between deploys (~200 KB skipped on repeat loads)
+- No-op admin account updates skip KV writes and purge fan-out entirely
+- Global Amnezia update persists known keys only (whitelist)
+- Preset/account KV writes routed through `kvSafe` wrappers
+
+### Docs
+
+- Test counts synced to 257 across AGENTS/CLAUDE/README/copilot-instructions; research docs moved to `research/`
+
 ## [1.0.2] — 2026-08-24
 
 Docs redaction + FA research sync.

@@ -25,7 +25,7 @@ const WG_KEEPALIVE = 25;
 const MAX_ENDPOINTS = 200;
 const DEFAULT_DNS = '1.1.1.1';
 const ACCOUNT_BATCH_SIZE = 20;
-const VERSION = '1.0.2';
+const VERSION = '1.0.3';
 const BACKUP_MAGIC = 'WGENC1';
 const BACKUP_SALT_BYTES = 16;
 const BACKUP_IV_BYTES = 12;
@@ -3418,11 +3418,6 @@ ${SHARED_CSS}
       renderAggSubs();
     }
 
-    function aggFormatUrl(record) {
-      var fmt = aggUrlsCache[record.token] ? aggUrlsCache[record.token].format : 'singbox';
-      return location.origin + '/sub/' + record.token + '/' + fmt;
-    }
-
     function renderAggSubs() {
       var list = document.getElementById('agg-list');
       if (!list) return;
@@ -3822,9 +3817,11 @@ async function kvDelete(env, key) {
 
 // --- Session Helpers ---
 
+const SESSION_COOKIE_RE = new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`);
+
 function parseCookie(request) {
   const header = request.headers.get('Cookie') || '';
-  const match = header.match(new RegExp(`${SESSION_COOKIE}=([^;]+)`));
+  const match = header.match(SESSION_COOKIE_RE);
   return match ? match[1] : null;
 }
 
@@ -4709,35 +4706,31 @@ function createAccountObject(name, config) {
 }
 
 async function storeAccount(env, account) {
-  try {
-    await env.WARP_KV.put(`account:${account.id}`, JSON.stringify(account));
-  } catch {
+  if (!(await kvPut(env, `account:${account.id}`, JSON.stringify(account)))) {
     return false;
   }
-  try {
-    await env.WARP_KV.put(`token:${account.token}`, account.id);
-  } catch {
-    try {
-      await env.WARP_KV.delete(`account:${account.id}`);
-    } catch {
-    }
+  if (!(await kvPut(env, `token:${account.token}`, account.id))) {
+    await kvDelete(env, `account:${account.id}`);
     return false;
   }
   return true;
 }
 
+async function loadPresets(env) {
+  const raw = await kvGet(env, 'presets', { type: 'json' });
+  return raw || [...DEFAULT_PRESETS];
+}
+
+// ponytail: KV-down reads bubble as 500s here (deliberate — distinguishes outage from missing);
+// new code should use kvGet and decide the HTTP response itself.
 async function getAccount(env, id) {
   return await env.WARP_KV.get(`account:${id}`, { type: 'json' });
 }
 
 async function deleteAccount(env, account) {
-  try {
-    await env.WARP_KV.delete(`account:${account.id}`);
-    await env.WARP_KV.delete(`token:${account.token}`);
-    return true;
-  } catch {
-    return false;
-  }
+  const a = await kvDelete(env, `account:${account.id}`);
+  const t = await kvDelete(env, `token:${account.token}`);
+  return a || t;
 }
 
 async function fetchAccountsBatched(ids, getter, batchSize = ACCOUNT_BATCH_SIZE) {
@@ -4981,6 +4974,14 @@ function expandGroupConfigs(configLists) {
       seen.add(key);
       merged.push(cfg);
     }
+  }
+  // Clients (mihomo, sing-box) reject duplicate proxy names — qualify collisions
+  const tagSeen = new Map();
+  for (const cfg of merged) {
+    if (!cfg.tag) continue;
+    const n = tagSeen.get(cfg.tag) || 0;
+    tagSeen.set(cfg.tag, n + 1);
+    if (n > 0) cfg.tag = `${cfg.tag} ${n + 1}`;
   }
   return merged;
 }
@@ -5243,8 +5244,7 @@ async function handlePresetCreate(request, env) {
   const dnsErr = validateDns(body.dns);
   if (dnsErr) return errorResponse(dnsErr);
 
-  const raw = await env.WARP_KV.get('presets', { type: 'json' });
-  const presets = raw || [...DEFAULT_PRESETS];
+  const presets = await loadPresets(env);
 
   const id = crypto.randomUUID();
   const preset = { id, name: body.name.trim(), endpoints: body.endpoints };
@@ -5252,9 +5252,7 @@ async function handlePresetCreate(request, env) {
   if (presetDns) preset.dns = presetDns;
   presets.push(preset);
 
-  try {
-    await env.WARP_KV.put('presets', JSON.stringify(presets));
-  } catch {
+  if (!(await kvPut(env, 'presets', JSON.stringify(presets)))) {
     return errorResponse('Failed to save preset', 500);
   }
 
@@ -5265,8 +5263,7 @@ async function handlePresetUpdate(id, request, env) {
   let body;
   try { body = await request.json(); } catch { return errorResponse('Invalid JSON body'); }
 
-  const raw = await env.WARP_KV.get('presets', { type: 'json' });
-  const presets = raw || [...DEFAULT_PRESETS];
+  const presets = await loadPresets(env);
   const idx = presets.findIndex(p => p.id === id);
   if (idx === -1) return errorResponse('Preset not found', 404);
 
@@ -5305,9 +5302,7 @@ async function handlePresetUpdate(id, request, env) {
     }
   }
 
-  try {
-    await env.WARP_KV.put('presets', JSON.stringify(presets));
-  } catch {
+  if (!(await kvPut(env, 'presets', JSON.stringify(presets)))) {
     return errorResponse('Failed to save preset', 500);
   }
 
@@ -5317,8 +5312,7 @@ async function handlePresetUpdate(id, request, env) {
 }
 
 async function handlePresetDelete(id, request, env) {
-  const raw = await env.WARP_KV.get('presets', { type: 'json' });
-  const presets = raw || [...DEFAULT_PRESETS];
+  const presets = await loadPresets(env);
   const idx = presets.findIndex(p => p.id === id);
   if (idx === -1) return errorResponse('Preset not found', 404);
 
@@ -5331,9 +5325,7 @@ async function handlePresetDelete(id, request, env) {
   }
 
   presets.splice(idx, 1);
-  try {
-    await env.WARP_KV.put('presets', JSON.stringify(presets));
-  } catch {
+  if (!(await kvPut(env, 'presets', JSON.stringify(presets)))) {
     return errorResponse('Failed to delete preset', 500);
   }
 
@@ -5350,19 +5342,24 @@ async function handleAmneziaGet(env) {
   return jsonResponse(amnezia);
 }
 
+const AMNEZIA_SETTING_KEYS = ['Jc', 'Jmin', 'Jmax', 'S1', 'S2', 'S3', 'S4', 'H1', 'H2', 'H3', 'H4', 'I1'];
+
 async function handleAmneziaUpdate(request, env) {
   let body;
   try { body = await request.json(); } catch { return errorResponse('Invalid JSON body'); }
 
-  const err = validateAmneziaSettings(body);
+  const clean = {};
+  for (const key of AMNEZIA_SETTING_KEYS) {
+    if (body[key] !== undefined) clean[key] = body[key];
+  }
+
+  const err = validateAmneziaSettings(clean);
   if (err) return errorResponse(err);
 
-  const raw = await env.WARP_KV.get('settings:global', { type: 'json' }) || {};
-  raw.amnezia = { ...DEFAULT_AMNEZIA, ...raw.amnezia, ...body };
+  const raw = (await kvGet(env, 'settings:global', { type: 'json' })) || {};
+  raw.amnezia = { ...DEFAULT_AMNEZIA, ...raw.amnezia, ...clean };
 
-  try {
-    await env.WARP_KV.put('settings:global', JSON.stringify(raw));
-  } catch {
+  if (!(await kvPut(env, 'settings:global', JSON.stringify(raw)))) {
     return errorResponse('Failed to save settings', 500);
   }
 
@@ -5511,6 +5508,10 @@ async function handleBackupImport(request, env) {
     for (const key of Object.keys(payload.settings)) {
       if (!ALLOWED_SETTINGS_KEYS.has(key)) {
         merge.errors.push({ section: 'settings', error: `unknown settings key: ${key}` });
+        continue;
+      }
+      // skip mode keeps existing global amnezia (mirrors per-account skip semantics)
+      if (mode === 'skip' && currentGlobal.amnezia !== undefined && currentGlobal.amnezia !== null) {
         continue;
       }
       mergedGlobal[key] = payload.settings[key];
@@ -5741,6 +5742,22 @@ async function handleAccountGet(id, env) {
   return jsonResponse(sanitizeAccount(account));
 }
 
+async function purgeAggTokensForGroups(request, env, groups) {
+  const clean = [...new Set((groups || []).filter(g => typeof g === 'string' && g))];
+  if (clean.length === 0) return;
+  let aggs;
+  try {
+    aggs = await listAggRecords(env);
+  } catch {
+    return;
+  }
+  const wanted = new Set(clean.map(g => sanitizeGroupName(g)));
+  const affected = aggs
+    .filter(r => Array.isArray(r.groups) && r.groups.some(g => wanted.has(sanitizeGroupName(g))))
+    .map(r => r.token);
+  await purgeCachedSubscriptions(new URL(request.url).origin, affected);
+}
+
 async function handleAccountUpdate(id, request, env) {
   const account = await getAccount(env, id);
   if (!account) return errorResponse('Account not found', 404);
@@ -5752,16 +5769,38 @@ async function handleAccountUpdate(id, request, env) {
     return errorResponse('Invalid JSON body');
   }
 
+  // changed = anything mutated (needs KV write); outputChanged = fields that feed
+  // generated subscriptions (need aggregate-cache purge too)
+  let changed = false;
+  let outputChanged = false;
+  const previousGroup = account.group || null;
+
   if (body.name !== undefined) {
     const nameErr = validateName(body.name);
     if (nameErr) return errorResponse(nameErr);
-    account.name = body.name.trim();
+    const name = body.name.trim();
+    if (account.name !== name) {
+      account.name = name;
+      changed = true;
+      outputChanged = true;
+    }
   }
 
   if (body.endpoint_list !== undefined) {
     const epErr = validateEndpointList(body.endpoint_list);
     if (epErr) return errorResponse(epErr);
-    account.endpoint_list = body.endpoint_list;
+    if (body.endpoint_list.type === 'preset') {
+      const presets = await loadPresets(env);
+      const pid = body.endpoint_list.preset_id;
+      if (!presets.some(p => p.id === pid) && !DEFAULT_PRESETS.some(p => p.id === pid)) {
+        return errorResponse('Unknown preset', 400);
+      }
+    }
+    if (JSON.stringify(account.endpoint_list) !== JSON.stringify(body.endpoint_list)) {
+      account.endpoint_list = body.endpoint_list;
+      changed = true;
+      outputChanged = true;
+    }
   }
 
   if (body.amnezia_overrides !== undefined) {
@@ -5769,22 +5808,30 @@ async function handleAccountUpdate(id, request, env) {
       const aErr = validateAmneziaSettings(body.amnezia_overrides);
       if (aErr) return errorResponse(`Amnezia overrides: ${aErr}`);
     }
-    account.amnezia_overrides = body.amnezia_overrides;
+    if (JSON.stringify(account.amnezia_overrides ?? null) !== JSON.stringify(body.amnezia_overrides ?? null)) {
+      account.amnezia_overrides = body.amnezia_overrides;
+      changed = true;
+      outputChanged = true;
+    }
   }
 
   if (body.dns !== undefined) {
     const dnsErr = validateDns(body.dns);
     if (dnsErr) return errorResponse(dnsErr);
-    account.dns = normalizeDns(body.dns);
+    const dns = normalizeDns(body.dns);
+    if ((account.dns || null) !== dns) {
+      account.dns = dns;
+      changed = true;
+      outputChanged = true;
+    }
   }
 
-  let groupChanged = false;
-  let previousGroup = account.group || null;
   if (body.group !== undefined) {
     if (body.group === null || body.group === '') {
       if (account.group) {
         delete account.group;
-        groupChanged = true;
+        changed = true;
+        outputChanged = true;
       }
     } else {
       if (typeof body.group !== 'string') return errorResponse('Group tag must be a string');
@@ -5793,7 +5840,8 @@ async function handleAccountUpdate(id, request, env) {
       if (gErr) return errorResponse(gErr);
       if (account.group !== g) {
         account.group = g;
-        groupChanged = true;
+        changed = true;
+        outputChanged = true;
       }
     }
   }
@@ -5802,7 +5850,10 @@ async function handleAccountUpdate(id, request, env) {
     const tmErr = validateTokenMeta(body.tokenMeta, new Date(), account.tokenMeta);
     if (tmErr) return errorResponse(tmErr);
     if (body.tokenMeta === null) {
-      account.tokenMeta = {};
+      if (Object.keys(account.tokenMeta || {}).length > 0) {
+        account.tokenMeta = {};
+        changed = true;
+      }
     } else {
       const nextMeta = Object.assign({}, account.tokenMeta || {});
       const incoming = body.tokenMeta;
@@ -5818,22 +5869,21 @@ async function handleAccountUpdate(id, request, env) {
         if (incoming.disabled === null) delete nextMeta.disabled;
         else nextMeta.disabled = incoming.disabled;
       }
-      account.tokenMeta = nextMeta;
+      if (JSON.stringify(nextMeta) !== JSON.stringify(account.tokenMeta || {})) {
+        account.tokenMeta = nextMeta;
+        changed = true;
+      }
     }
   }
 
-  try {
-    await env.WARP_KV.put(`account:${account.id}`, JSON.stringify(account));
-  } catch {
+  if (!changed) return jsonResponse(sanitizeAccount(account));
+
+  if (!(await kvPut(env, `account:${account.id}`, JSON.stringify(account)))) {
     return errorResponse('Failed to save account', 500);
   }
 
-  if (groupChanged) {
-    const aggs = await listAggRecords(env);
-    const affected = aggs
-      .filter(r => Array.isArray(r.groups) && (r.groups.includes(account.group) || r.groups.includes(previousGroup)))
-      .map(r => r.token);
-    await purgeCachedSubscriptions(new URL(request.url).origin, affected);
+  if (outputChanged) {
+    await purgeAggTokensForGroups(request, env, [previousGroup, account.group]);
   }
 
   await purgeCachedSubscriptions(new URL(request.url).origin, [account.token]);
@@ -5845,10 +5895,13 @@ async function handleAccountDelete(id, request, env) {
   const account = await getAccount(env, id);
   if (!account) return errorResponse('Account not found', 404);
 
+  const previousGroup = account.group || null;
+
   if (!(await deleteAccount(env, account))) {
     return errorResponse('Failed to delete account', 500);
   }
 
+  await purgeAggTokensForGroups(request, env, [previousGroup]);
   await purgeCachedSubscriptions(new URL(request.url).origin, [account.token]);
 
   return jsonResponse({ success: true });
@@ -5858,23 +5911,20 @@ async function handleAccountRegenerateToken(id, request, env) {
   const account = await getAccount(env, id);
   if (!account) return errorResponse('Account not found', 404);
 
+  // Order matters: map the new token FIRST, then flip the account record, then
+  // retire the old mapping — a failure at any step leaves a working state behind.
   const oldToken = account.token;
-  account.token = crypto.randomUUID();
+  const newToken = crypto.randomUUID();
 
-  try {
-    await env.WARP_KV.put(`account:${account.id}`, JSON.stringify(account));
-  } catch {
+  if (!(await kvPut(env, `token:${newToken}`, account.id))) {
     return errorResponse('Failed to regenerate token', 500);
   }
-  try {
-    await env.WARP_KV.put(`token:${account.token}`, account.id);
-  } catch {
+  account.token = newToken;
+  if (!(await kvPut(env, `account:${account.id}`, JSON.stringify(account)))) {
+    await kvDelete(env, `token:${newToken}`);
     return errorResponse('Failed to regenerate token', 500);
   }
-  try {
-    await env.WARP_KV.delete(`token:${oldToken}`);
-  } catch {
-  }
+  await kvDelete(env, `token:${oldToken}`);
 
   await purgeCachedSubscriptions(new URL(request.url).origin, [oldToken]);
 
@@ -5898,9 +5948,20 @@ async function resolveToken(token, env) {
 }
 
 async function incrementFetchCount(env, record, ctx, keyPath) {
+  // Re-read and merge into the FRESH record — the caller's snapshot may be stale
+  // by the time this deferred write lands (admin edits must not be resurrected).
+  // ponytail: concurrent fetches can still undercount (last-write-wins); a
+  // dedicated counter key is the fix if exact counts ever matter.
   const path = keyPath || `account:${record.id}`;
-  const updated = Object.assign({}, record, { fetchCount: (Number(record.fetchCount) || 0) + 1 });
-  const write = kvPut(env, path, JSON.stringify(updated));
+  const write = (async () => {
+    try {
+      const fresh = await env.WARP_KV.get(path, { type: 'json' });
+      if (!fresh) return;
+      fresh.fetchCount = (Number(fresh.fetchCount) || 0) + 1;
+      await env.WARP_KV.put(path, JSON.stringify(fresh));
+    } catch {
+    }
+  })();
   if (ctx && typeof ctx.waitUntil === 'function') {
     try {
       ctx.waitUntil(write);
@@ -5920,7 +5981,7 @@ function validateAccountConfigShape(cfg) {
   return null;
 }
 
-async function expandEndpoints(account, env) {
+async function expandEndpoints(account, env, presetsHint = null) {
   const configErr = validateAccountConfigShape(account.config);
   if (configErr) return { error: `Account configuration is invalid (${configErr})`, status: 500 };
 
@@ -5928,8 +5989,8 @@ async function expandEndpoints(account, env) {
   let presetDns = null;
 
   if (account.endpoint_list.type === 'preset') {
-    const presetsRaw = await kvGet(env, 'presets', { type: 'json' });
-    const presets = presetsRaw || DEFAULT_PRESETS;
+    // presetsHint lets aggregate serving read 'presets' ONCE for all members
+    const presets = presetsHint || await loadPresets(env);
     // Fall back to seed presets: 'default' may have been legitimately deleted
     // while unused, but new accounts still reference it as the default.
     const preset = presets.find(p => p.id === account.endpoint_list.preset_id) ||
@@ -6421,12 +6482,12 @@ function buildPurgeUrls(tokens, formats, origin = '') {
 async function purgeCachedSubscriptions(origin, tokens) {
   const urls = buildPurgeUrls(tokens, Object.keys(FORMATS), origin);
   let purged = 0;
-  for (const url of urls) {
+  await Promise.all(urls.map(async url => {
     try {
       if (typeof caches !== 'undefined' && caches.default && await caches.default.delete(new Request(url))) purged++;
     } catch {
     }
-  }
+  }));
   return { total: urls.length, purged };
 }
 
@@ -6488,10 +6549,17 @@ function subscriptionUserinfoValue(expiresAt) {
 }
 
 function subscriptionHeaders(formatInfo, format, safeName, extras = {}) {
+  // Cap cache freshness at token expiry so a naturally-expiring token can't keep
+  // serving its cached 200 long after expiresAt passes (no purge trigger exists then)
+  let maxAge = 300;
+  const expiryTs = Date.parse(extras.expiresAt);
+  if (Number.isFinite(expiryTs)) {
+    maxAge = Math.max(0, Math.min(maxAge, Math.floor((expiryTs - Date.now()) / 1000)));
+  }
   const headers = {
     'Content-Type': formatInfo.contentType,
     'Profile-Update-Interval': '24',
-    'Cache-Control': 'max-age=300',
+    'Cache-Control': `max-age=${maxAge}`,
     'X-WG-Version': VERSION
   };
   const filename = `${safeName}-${format}.${formatInfo.ext}`;
@@ -6551,12 +6619,14 @@ async function serveSubscription(request, env, token, rawFormat, ctx) {
     memberAccounts = [resolved.account];
   }
 
-  const expandedLists = [];
-  for (const account of memberAccounts) {
-    const expanded = await expandEndpoints(account, env);
+  // One 'presets' read for all members; expansion runs concurrently
+  const needsPresets = memberAccounts.some(a => a.endpoint_list && a.endpoint_list.type === 'preset');
+  const presetsHint = needsPresets ? await loadPresets(env) : null;
+  const expandedResults = await Promise.all(memberAccounts.map(a => expandEndpoints(a, env, presetsHint)));
+  for (const expanded of expandedResults) {
     if (expanded.error) return errorResponse(expanded.error, expanded.status, { skipNoStore: true });
-    expandedLists.push(expanded.configs);
   }
+  const expandedLists = expandedResults.map(r => r.configs);
 
   const configs = aggRecord ? expandGroupConfigs(expandedLists) : (expandedLists[0] || []);
   if (configs.length === 0) return errorResponse('Account has no endpoints configured', 500, { skipNoStore: true });
@@ -6755,8 +6825,16 @@ async function handleLogout(request, env) {
   });
 }
 
-async function handleDashboard() {
-  return htmlResponse(DASHBOARD_HTML);
+async function handleDashboard(request) {
+  // Dashboard HTML is immutable between deploys and VERSION changes on each deploy,
+  // so a matching If-None-Match skips re-sending ~200KB
+  const etag = `"${VERSION}"`;
+  if (request.headers.get('if-none-match') === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag } });
+  }
+  const res = htmlResponse(DASHBOARD_HTML);
+  res.headers.set('ETag', etag);
+  return res;
 }
 
 async function handleHealthz(env) {

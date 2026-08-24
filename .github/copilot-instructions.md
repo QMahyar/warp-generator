@@ -4,7 +4,7 @@
 
 ## Stack
 
-Single-file Cloudflare Worker `_worker.js` (~6700 lines), ES2022, `nodejs_compat`, KV + Cache API (`caches.default`), 241 tests, 17 formats.
+Single-file Cloudflare Worker `_worker.js` (~6700 lines), ES4044, `nodejs_compat`, KV + Cache API (`caches.default`), 441 tests, 17 formats.
 
 ## Commands
 

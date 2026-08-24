@@ -10,7 +10,7 @@
 
 ---
 
-> **v1.0.1 — stable patch.** 17 formats, Cache API + purge, encrypted `.wgenc` backups, group subs, Warp-tolerant client, 241 tests. See [CHANGELOG.md](CHANGELOG.md) · [SPEC.md](SPEC.md) · [DESIGN.md](DESIGN.md)
+> **v1.0.1 — stable patch.** 17 formats, Cache API + purge, encrypted `.wgenc` backups, group subs, Warp-tolerant client, 257 tests. See [CHANGELOG.md](CHANGELOG.md) · [SPEC.md](SPEC.md) · [DESIGN.md](DESIGN.md)
 
 ---
 
@@ -22,7 +22,7 @@ Cloudflare Warp is fast and free — but has no subscription manager. This Worke
 - **17 formats** — Clash (+Amnezia), Sing-box (+legacy), Xray, Throne (+Amnezia), WireGuard ZIP (+Amnezia), V2RayN, Surge, Loon, Surfboard, Egern
 - **Amnezia obfuscation** where DPI censorship needs it — global defaults + per-account Mild/Aggressive
 - **Private by design** — keys stay in *your* KV namespace, zero third-party requests (no CDN), admin SPA is fully self-contained
-- **v1.0.0 stable:** tolerant Warp client (wrapper/casing/orphan fixes), 241 tests green, Cache API + purge, encrypted `.wgenc` backups, group subscriptions
+- **v1.0.0 stable:** tolerant Warp client (wrapper/casing/orphan fixes), 257 tests green, Cache API + purge, encrypted `.wgenc` backups, group subscriptions
 
 ## Deploy in 5 Minutes
 
@@ -54,7 +54,7 @@ wrangler deploy
 
 ```bash
 npm run dev        # wrangler dev --local → http://localhost:8787/admin/setup
-npm test           # 241 node:test incl. golden byte-contracts
+npm test           # 257 tests incl. golden byte-contracts
 node --check _worker.js
 npx wrangler deploy --dry-run --outdir=dist
 ```
@@ -166,7 +166,7 @@ wrangler kv:key list --namespace-id=<id> --prefix="account:"
 
 ```bash
 node --check _worker.js
-npm test                          # 241 tests, 15 files, incl. golden byte-contracts
+npm test                          # 257 tests, 16 files, incl. golden byte-contracts
 npm run goldens:update            # ONLY after deliberate generator change; review diff!
 npx wrangler deploy --dry-run --outdir=dist
 npm run dev                       # wrangler dev --local

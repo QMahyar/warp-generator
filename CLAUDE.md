@@ -2,7 +2,7 @@
 
 ## Project
 
-Single-file Cloudflare Worker for Warp WireGuard subscriptions. Version `1.0.0` stable. One `_worker.js` (~6700 lines) + `test/` suite (241 tests).
+Single-file Cloudflare Worker for Warp WireGuard subscriptions. Version `1.0.0` stable. One `_worker.js` (~6700 lines) + `test/` suite (257 tests).
 
 ## Tech Stack
 
@@ -15,7 +15,7 @@ Single-file Cloudflare Worker for Warp WireGuard subscriptions. Version `1.0.0` 
 
 ```bash
 node --check _worker.js
-npm test                          # 241 tests incl. goldens
+npm test                          # 257 tests incl. goldens
 npm run goldens:update            # ONLY after deliberate gen change
 node scripts/check-version.mjs    # package.json ↔ _worker.js ↔ tag
 npx wrangler deploy --dry-run --outdir=dist

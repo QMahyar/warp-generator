@@ -1,7 +1,7 @@
 # Warp Generator — Agent Rules
 
 **Project:** Cloudflare Worker for managing Warp WireGuard configs and subscriptions  
-**Status:** v1.0.0 stable — first stable (single file, 241 tests, 17 formats, KV+Cache API)
+**Status:** v1.0.0 stable — first stable (single file, 257 tests, 17 formats, KV+Cache API)
 
 ---
 
@@ -29,7 +29,7 @@
 **Test (must be green before any handoff):**
 ```bash
 node --check _worker.js                    # syntax gate
-npm test                                   # 241 tests incl. goldens
+npm test                                   # 257 tests incl. goldens
 node scripts/check-version.mjs             # package.json ↔ _worker.js ↔ tag must match
 npm run goldens:update                     # ONLY after deliberate generator change; review diff
 npx wrangler deploy --dry-run --outdir=dist
@@ -80,7 +80,7 @@ wrangler kv:key list --namespace-id=<id> --prefix="account:"
 
 **Format generators (registry):**
 ```javascript
-// All 10 formats live in FORMATS (~line 6192): { contentType, ext, binary, needsAmnezia, gen }
+// All 17 formats live in FORMATS (const FORMATS): { contentType, ext, binary, needsAmnezia, gen }
 // New format = one registry entry; handleSubscription() picks it up automatically.
 ```
 
@@ -163,7 +163,7 @@ warp-generator/
 ├── .github/workflows/ci.yml
 ├── html/                   # Source HTML templates served inline via String.raw
 ├── test/
-│   ├── *.test.mjs          # 14 node:test files, 241 assertions
+│   ├── *.test.mjs          # 16 node:test files, 257 assertions
 │   ├── golden/*.txt        # Byte-contract fixtures (guarded by .gitattributes -text)
 │   └── update-goldens.mjs  # npm run goldens:update
 └── research/               # VPN format research docs
@@ -386,7 +386,7 @@ path and re-checkout the files.
 
 ## Testing
 
-**241 tests across 14 files** (`node --test`, zero extra dev deps):
+**257 tests across 16 files** (`node --test`, zero extra dev deps):
 
 ```bash
 npm test                 # everything
@@ -423,7 +423,7 @@ client imports, QR scans, deep-link opens on device.
   encrypted backup export/import (.wgenc, skip|overwrite merge), approximate browser latency
   probe (preferredOrder), WARP status chip, aggregate group subscriptions (/api/agg → /sub),
   setup checklist banner
-- DevOps: 241-test node:test suite incl. golden byte contracts, GitHub Actions CI (verify + release + healthz), tag-as-truth (`scripts/check-version.mjs`)
+- DevOps: 257-test node:test suite incl. golden byte contracts, GitHub Actions CI (verify + release + healthz), tag-as-truth (`scripts/check-version.mjs`)
 - Schema additive only: `tokenMeta`/`fetchCount`/`group`/`dns` appear on edit; `cache:*` abandoned (harmless)
 
 **v1.2.0** (2026-08-21)
@@ -473,4 +473,4 @@ client imports, QR scans, deep-link opens on device.
 ---
 
 **Last updated:** 2026-08-24  
-**Status:** v1.0.0 stable; 241 tests green in CI
+**Status:** v1.0.0 stable; 257 tests green in CI
