@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [master]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            node_modules-${{ runner.os }}-
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Syntax check worker
+        run: node --check _worker.js
+      - name: Version consistency (package.json ↔ _worker.js ↔ tag)
+        run: node scripts/check-version.mjs
+      - name: Run tests
+        run: npm test
+      - name: Wrangler dry-run deploy
+        run: npx wrangler deploy --dry-run --outdir=dist
+      - name: Audit (no high/critical)
+        run: npm audit --audit-level=high || (echo "npm audit found high/critical — review" && exit 1)
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            node_modules-${{ runner.os }}-
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Deploy to Cloudflare (master → preview sanity)
+        run: npx wrangler deploy --dry-run --outdir=dist
+      # Real deploy is tag-driven via release.yml; master deploy is dry-run only.
+      # To enable auto-deploy on master, uncomment:
+      # - name: Deploy to Cloudflare
+      #   run: npx wrangler deploy
+      #   env:
+      #     CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      #     CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+      #     CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}

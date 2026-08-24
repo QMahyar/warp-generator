@@ -1,0 +1,61 @@
+proxies:
+  - wireguard:
+      name: Home ISP engage.cloudflareclient.com:2408
+      server: engage.cloudflareclient.com
+      port: 2408
+      private_key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+      peer_public_key: bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+      local_ipv4: 10.2.0.2/32
+      local_ipv6: fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+      reserved:
+        - 1
+        - 2
+        - 3
+  - wireguard:
+      name: Home ISP 162.159.192.1:500
+      server: 162.159.192.1
+      port: 500
+      private_key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+      peer_public_key: bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+      local_ipv4: 10.2.0.2/32
+      local_ipv6: fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+      reserved:
+        - 1
+        - 2
+        - 3
+  - wireguard:
+      name: Home ISP 2606:4700:d0::a29f:c001:2408
+      server: 2606:4700:d0::a29f:c001
+      port: 2408
+      private_key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+      peer_public_key: bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+      local_ipv4: 10.2.0.2/32
+      local_ipv6: fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+      reserved:
+        - 1
+        - 2
+        - 3
+  - wireguard:
+      name: Home ISP 162.159.192.33:1701
+      server: 162.159.192.33
+      port: 1701
+      private_key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+      peer_public_key: bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+      local_ipv4: 10.2.0.2/32
+      local_ipv6: fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+      reserved:
+        - 1
+        - 2
+        - 3
+  - wireguard:
+      name: Home ISP 2606:4700:d0::a29f:c002:878
+      server: 2606:4700:d0::a29f:c002
+      port: 878
+      private_key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+      peer_public_key: bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+      local_ipv4: 10.2.0.2/32
+      local_ipv6: fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+      reserved:
+        - 1
+        - 2
+        - 3

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+.wrangler-dev.log
+*.log
+.dev.vars
+.playwright-mcp/
+qa-report/

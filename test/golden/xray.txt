@@ -1,0 +1,149 @@
+{
+  "outbounds": [
+    {
+      "protocol": "wireguard",
+      "tag": "Home ISP engage.cloudflareclient.com:2408",
+      "settings": {
+        "secretKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+        "address": [
+          "10.2.0.2/32",
+          "fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128"
+        ],
+        "peers": [
+          {
+            "endpoint": "engage.cloudflareclient.com:2408",
+            "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            "preSharedKey": "",
+            "keepAlive": 25,
+            "allowedIPs": [
+              "0.0.0.0/0",
+              "::/0"
+            ]
+          }
+        ],
+        "mtu": 1280,
+        "reserved": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "protocol": "wireguard",
+      "tag": "Home ISP 162.159.192.1:500",
+      "settings": {
+        "secretKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+        "address": [
+          "10.2.0.2/32",
+          "fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128"
+        ],
+        "peers": [
+          {
+            "endpoint": "162.159.192.1:500",
+            "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            "preSharedKey": "",
+            "keepAlive": 25,
+            "allowedIPs": [
+              "0.0.0.0/0",
+              "::/0"
+            ]
+          }
+        ],
+        "mtu": 1280,
+        "reserved": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "protocol": "wireguard",
+      "tag": "Home ISP 2606:4700:d0::a29f:c001:2408",
+      "settings": {
+        "secretKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+        "address": [
+          "10.2.0.2/32",
+          "fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128"
+        ],
+        "peers": [
+          {
+            "endpoint": "[2606:4700:d0::a29f:c001]:2408",
+            "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            "preSharedKey": "",
+            "keepAlive": 25,
+            "allowedIPs": [
+              "0.0.0.0/0",
+              "::/0"
+            ]
+          }
+        ],
+        "mtu": 1280,
+        "reserved": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "protocol": "wireguard",
+      "tag": "Home ISP 162.159.192.33:1701",
+      "settings": {
+        "secretKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+        "address": [
+          "10.2.0.2/32",
+          "fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128"
+        ],
+        "peers": [
+          {
+            "endpoint": "162.159.192.33:1701",
+            "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            "preSharedKey": "",
+            "keepAlive": 25,
+            "allowedIPs": [
+              "0.0.0.0/0",
+              "::/0"
+            ]
+          }
+        ],
+        "mtu": 1280,
+        "reserved": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "protocol": "wireguard",
+      "tag": "Home ISP 2606:4700:d0::a29f:c002:878",
+      "settings": {
+        "secretKey": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+        "address": [
+          "10.2.0.2/32",
+          "fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128"
+        ],
+        "peers": [
+          {
+            "endpoint": "[2606:4700:d0::a29f:c002]:878",
+            "publicKey": "bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=",
+            "preSharedKey": "",
+            "keepAlive": 25,
+            "allowedIPs": [
+              "0.0.0.0/0",
+              "::/0"
+            ]
+          }
+        ],
+        "mtu": 1280,
+        "reserved": [
+          1,
+          2,
+          3
+        ]
+      }
+    }
+  ]
+}

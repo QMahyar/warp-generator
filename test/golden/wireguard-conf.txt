@@ -1,0 +1,65 @@
+### Home-ISP-162.159.192.1-500.conf
+[Interface]
+PrivateKey = AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+Address = 10.2.0.2/32, fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+DNS = 1.1.1.1
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 162.159.192.1:500
+PersistentKeepalive = 25
+# Reserved = 1,2,3
+### Home-ISP-162.159.192.33-1701.conf
+[Interface]
+PrivateKey = AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+Address = 10.2.0.2/32, fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+DNS = 1.1.1.1
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = 162.159.192.33:1701
+PersistentKeepalive = 25
+# Reserved = 1,2,3
+### Home-ISP-2606-4700-d0-a29f-c001-2408.conf
+[Interface]
+PrivateKey = AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+Address = 10.2.0.2/32, fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+DNS = 1.1.1.1
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = [2606:4700:d0::a29f:c001]:2408
+PersistentKeepalive = 25
+# Reserved = 1,2,3
+### Home-ISP-2606-4700-d0-a29f-c002-878.conf
+[Interface]
+PrivateKey = AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+Address = 10.2.0.2/32, fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+DNS = 1.1.1.1
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = [2606:4700:d0::a29f:c002]:878
+PersistentKeepalive = 25
+# Reserved = 1,2,3
+### Home-ISP-engage.cloudflareclient.com-2408.conf
+[Interface]
+PrivateKey = AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
+Address = 10.2.0.2/32, fd00:60ca:98fa:c88b:1234:5678:90ab:cdef/128
+DNS = 1.1.1.1
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = engage.cloudflareclient.com:2408
+PersistentKeepalive = 25
+# Reserved = 1,2,3

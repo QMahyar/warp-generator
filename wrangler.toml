@@ -1,0 +1,13 @@
+name = "warp-generator"
+main = "_worker.js"
+compatibility_date = "2026-07-29"
+compatibility_flags = ["nodejs_compat"]
+
+kv_namespaces = [
+  # Create your own KV: `wrangler kv:namespace create WARP_KV` → paste the id below
+  { binding = "WARP_KV", id = "YOUR_KV_NAMESPACE_ID" }
+]
+
+[vars]
+WARP_USER_AGENT = "okhttp/3.12.1"
+WARP_CLIENT_VERSION = "a-6.30-3596"

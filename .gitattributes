@@ -1,0 +1,2 @@
+# Golden fixtures must stay byte-identical across platforms (generators emit LF)
+test/golden/*.txt -text

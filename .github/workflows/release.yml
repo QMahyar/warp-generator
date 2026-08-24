@@ -1,0 +1,80 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag to release (e.g. v1.0.1) — must exist'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: node_modules-${{ runner.os }}-${{ hashFiles('package.json') }}
+          restore-keys: |
+            node_modules-${{ runner.os }}-
+      - run: npm install --no-audit --no-fund
+      - run: node --check _worker.js
+      - run: node scripts/check-version.mjs
+      - run: npm test
+      - run: npx wrangler deploy --dry-run --outdir=dist
+      - name: Extract changelog for tag
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF_NAME:-${{ inputs.version }}}
+          echo "Releasing $TAG"
+          # verify CHANGELOG has section
+          grep -q "## \\[$TAG\\]" CHANGELOG.md || grep -q "## \\[${TAG#v}\\]" CHANGELOG.md || (echo "CHANGELOG missing $TAG" && exit 1)
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: false
+          body_path: CHANGELOG.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
+          CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: Health check
+        run: |
+          sleep 8
+          curl -fsS https://warp-generator.qhorror13194.workers.dev/healthz | tee /tmp/health.json
+          cat /tmp/health.json
+          grep -q '"ok":true' /tmp/health.json
+      - name: Rollback hint on failure
+        if: failure()
+        run: |
+          echo "::error::Release failed — rollback: git push origin :refs/tags/$GITHUB_REF_NAME && gh release delete $GITHUB_REF_NAME --yes && wrangler rollback --version <prev> (or wrangler deploy on previous tag)"

@@ -1,0 +1,49 @@
+# Warp Generator — Cursor Rules (v1.0.0 stable)
+
+Single-file Cloudflare Worker. All runtime logic is in `_worker.js` (~6700 lines) + `html/` inlined via `String.raw`. Do NOT split into modules. Tag `v*.*.*` is version truth (`package.json` ↔ `_worker.js:VERSION` via `scripts/check-version.mjs`).
+
+## Stack
+
+- Workers ES2022, `nodejs_compat`, Cache API (`caches.default`) + KV (`WARP_KV` `403f8a13…`)
+- Deps: bcryptjs (legacy migration only), @noble/curves, fflate, js-yaml (lineWidth -1)
+- Constraints: 10 ms CPU free, no Node at runtime, workerd rejects non-function exports → use `testHooks()`
+
+## Style
+
+- camelCase funcs/vars, UPPER_SNAKE consts, async/await, early returns, explicit error handling
+- Routes: add to `ROUTES` (`_worker.js:6790`) — `dispatchRequest` handles auth/405/501/404
+- Formats: add to `FORMATS` (`_worker.js:6430`) — sync `SUB_FORMATS` in dashboard, `npm run goldens:update`
+- KV: always `kvGet`/`kvPut`/`kvDelete` and check `null`/`false`
+- Cache: `origin + /sub/{token}/{format}` via `caches.default`; purge via `purgeCachedSubscriptions` / `purgeAllCachedSubscriptions` (includes `agg:{token}`)
+- Exports: plain helpers directly, constants via `testHooks()`; no CDN in admin HTML
+
+## KV Keys
+
+- `account:{uuid}` — Account (additive: `dns`, `group`, `tokenMeta`, `fetchCount`)
+- `token:{token}` — Token → uuid
+- `agg:{token}` — Aggregate `{token, groups[], label?, tokenMeta?}`
+- `session:{token}` — Session TTL 24h
+- `auth:fail:{ip}` — 5 fails / 900 s → 429
+- `settings:password` — PBKDF2/bcrypt
+- `settings:global` — `{amnezia}`
+- `settings:warpstatus` — `{ok, checkedAt, lastError}`
+- `presets` — Preset array (`dns`, `preferredOrder`)
+- `cache:*` — removed v1.0.0, abandoned
+
+## Validation (SPEC.md AC11 + addendum)
+
+- Name 1-100 chars no control; Config 100B-10KB; Private key base64 32B no whitespace
+- IP: strict IPv4/IPv6/domain 253 chars; Port 1-65535; DNS IP/domain; Endpoints 1-200
+- Password 8-128 chars (72B cap); Token label 1-100, expiresAt future ISO, group sanitized
+- Amnezia Jc 0-128, Jmin/Jmax 0-1280 Jmin≤Jmax, S 0-255, H 0-2147483647 or lo-hi non-overlapping
+
+## Never
+
+- Store passwords plaintext; log private keys/tokens (warp client redacts)
+- Trust input; add dep without bundle check; hand-edit `test/golden/*`
+- Add non-function named exports (workerd rejects) — use `testHooks()`
+- Skip `node --check _worker.js` + `npm test` + `scripts/check-version.mjs` before handoff
+
+## See
+
+`AGENTS.md` (agent rules) · `CLAUDE.md` (full stack/commands) · `SPEC.md` · `DESIGN.md` · `CHANGELOG.md` · `docs/RELEASE.md` · `docs/decisions/`
